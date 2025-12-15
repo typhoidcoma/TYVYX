@@ -33,6 +33,8 @@ class TEKYDroneController:
         """Initialize the drone controller"""
         self.udp_socket: Optional[socket.socket] = None
         self.video_capture: Optional[cv2.VideoCapture] = None
+        # Threaded video stream helper (set when starting video)
+        self.video_stream = None
         self.is_running = False
         self.is_connected = False
         self.device_type = 0  # 0=Unknown, 2=GL, 10=TC
@@ -119,8 +121,19 @@ class TEKYDroneController:
             finally:
                 self.udp_socket = None
 
+        # Stop the threaded video stream if it was started
+        try:
+            if getattr(self, "video_stream", None):
+                self.video_stream.stop()
+                self.video_stream = None
+        except Exception as e:
+            print(f"Note: video stream stop: {e}")
+
         if self.video_capture:
-            self.video_capture.release()
+            try:
+                self.video_capture.release()
+            except Exception:
+                pass
             self.video_capture = None
 
         print("Disconnected.")
@@ -219,13 +232,11 @@ class TEKYDroneController:
         try:
             print(f"Starting video stream from {self.RTSP_URL}...")
 
-            # Try OpenCV first
-            self.video_capture = cv2.VideoCapture(self.RTSP_URL)
+            # Use the threaded OpenCVVideoStream helper for lower-latency reads
+            from video_stream import OpenCVVideoStream
 
-            # Set buffer size to reduce latency
-            self.video_capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-            if not self.video_capture.isOpened():
+            self.video_stream = OpenCVVideoStream(self.RTSP_URL, buffer_size=1)
+            if not self.video_stream.start():
                 print("Failed to open video stream with OpenCV")
                 print("Please ensure:")
                 print("1. You're connected to the drone's WiFi network")
@@ -245,11 +256,16 @@ class TEKYDroneController:
         Get a frame from the video stream
         Returns (success, frame) tuple
         """
-        if not self.video_capture:
-            return False, None
+        # Prefer threaded video stream
+        if getattr(self, "video_stream", None):
+            return self.video_stream.read()
 
-        ret, frame = self.video_capture.read()
-        return ret, frame
+        # Fallback to direct capture if present
+        if self.video_capture:
+            ret, frame = self.video_capture.read()
+            return ret, frame
+
+        return False, None
 
     def switch_camera(self, camera_num: int):
         """

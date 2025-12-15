@@ -24,9 +24,17 @@ pip install -r requirements.txt
 **Important**: You need FFmpeg for video streaming!
 
 - **Windows**: 
-  1. Download from https://ffmpeg.org/download.html
-  2. Extract and add to PATH environment variable
-  3. Verify: `ffmpeg -version`
+   1. Download from https://ffmpeg.org/download.html
+   2. Extract and add to PATH environment variable
+   3. Verify: `ffmpeg -version`
+
+Also install Python packages into the project's virtual environment:
+
+```powershell
+& .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+pip install -r requirements-dev.txt  # for running tests and linters (optional)
+```
 
 - **Linux (Ubuntu/Debian)**:
   ```bash

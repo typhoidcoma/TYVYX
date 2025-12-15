@@ -9,6 +9,7 @@ import threading
 import time
 import numpy as np
 from typing import Optional, Tuple, List
+
 # `struct` not used in current implementation
 # `sys` not used in current implementation
 
@@ -171,6 +172,8 @@ class TEKYDroneControllerAdvanced:
         """Initialize the drone controller"""
         self.udp_socket: Optional[socket.socket] = None
         self.video_capture: Optional[cv2.VideoCapture] = None
+        # Threaded video stream helper (set when starting video)
+        self.video_stream = None
         self.is_running = False
         self.is_connected = False
         self.device_type = 0
@@ -241,8 +244,19 @@ class TEKYDroneControllerAdvanced:
             self.udp_socket.close()
             self.udp_socket = None
 
+        # Stop threaded video stream if active
+        try:
+            if getattr(self, "video_stream", None):
+                self.video_stream.stop()
+                self.video_stream = None
+        except Exception as e:
+            print(f"Note: video stream stop: {e}")
+
         if self.video_capture:
-            self.video_capture.release()
+            try:
+                self.video_capture.release()
+            except Exception:
+                pass
             self.video_capture = None
 
         print("Disconnected.")
@@ -303,10 +317,10 @@ class TEKYDroneControllerAdvanced:
         try:
             print(f"Starting video stream from {self.RTSP_URL}...")
 
-            self.video_capture = cv2.VideoCapture(self.RTSP_URL)
-            self.video_capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            from video_stream import OpenCVVideoStream
 
-            if not self.video_capture.isOpened():
+            self.video_stream = OpenCVVideoStream(self.RTSP_URL, buffer_size=1)
+            if not self.video_stream.start():
                 print("Failed to open video stream")
                 return False
 
@@ -319,11 +333,14 @@ class TEKYDroneControllerAdvanced:
 
     def get_frame(self) -> Tuple[bool, Optional[np.ndarray]]:
         """Get a frame from the video stream"""
-        if not self.video_capture:
-            return False, None
+        if getattr(self, "video_stream", None):
+            return self.video_stream.read()
 
-        ret, frame = self.video_capture.read()
-        return ret, frame
+        if self.video_capture:
+            ret, frame = self.video_capture.read()
+            return ret, frame
+
+        return False, None
 
 
 def main():

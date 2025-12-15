@@ -18,6 +18,9 @@ starting guide for contributors and users.
 - `drone_controller_yolo.py`: Video processing pipeline prepared for
   YOLO11 integration and recording support.
 
+- `video_stream.py`: `OpenCVVideoStream` helper — threaded wrapper around
+  OpenCV `VideoCapture` for RTSP and low-latency reading.
+
 - `network_diagnostics.py`: Network diagnostic utilities for testing
   connectivity, capturing UDP packets, and experimenting with commands.
 

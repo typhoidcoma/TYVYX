@@ -1,2 +1,10 @@
+# Runtime requirements for TEKY drone controllers and web app
 opencv-python>=4.8.0
 numpy>=1.24.0
+flask>=2.0.0
+
+# Optional (heavy) dependency for YOLO integration - enable only if needed
+# ultralytics>=8.0.0
+
+# NOTE: FFmpeg is required on the system PATH for reliable RTSP playback
+# (Not a Python package). Verify with `ffmpeg -version`.

@@ -3,6 +3,8 @@
 import socket
 import time
 import sys
+import shutil
+from contextlib import closing
 from datetime import datetime
 
 
@@ -22,21 +24,34 @@ class DroneNetworkDiagnostics:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         log_line = f"[{timestamp}] {message}"
         print(log_line)
-        with open(self.log_file, "a") as f:
-            f.write(log_line + "\n")
+        # Ensure file writes use UTF-8 and do not raise on characters
+        # unsupported by the platform default encoding (e.g. Windows cp1252).
+        # Use 'replace' to avoid exceptions while preserving readable output.
+        try:
+            with open(self.log_file, "a", encoding="utf-8", errors="replace") as f:
+                f.write(log_line + "\n")
+        except Exception:
+            # As a last resort, attempt to write with system default but replace errors.
+            with open(self.log_file, "a", errors="replace") as f:
+                f.write(log_line + "\n")
 
     def test_ping(self) -> bool:
         """Test if drone is reachable"""
         self.log("=" * 70)
         self.log("PING TEST")
         self.log("=" * 70)
-
         import subprocess
         import platform
 
-        # Use appropriate ping command for OS
+        # Ensure the ping executable exists on PATH
+        ping_exe = shutil.which("ping")
+        if not ping_exe:
+            self.log("⚠ Ping executable not found on PATH; skipping ping test")
+            return False
+
+        # Use appropriate ping parameter for count based on OS
         param = "-n" if platform.system().lower() == "windows" else "-c"
-        command = ["ping", param, "3", self.DRONE_IP]
+        command = [ping_exe, param, "3", self.DRONE_IP]
 
         try:
             result = subprocess.run(command, capture_output=True, text=True, timeout=10)
@@ -44,8 +59,18 @@ class DroneNetworkDiagnostics:
                 self.log(f"✓ Drone at {self.DRONE_IP} is reachable")
                 return True
             else:
+                # Provide brief stdout/stderr for debugging
+                out = (result.stdout or "").strip()
+                err = (result.stderr or "").strip()
                 self.log(f"✗ Drone at {self.DRONE_IP} is NOT reachable")
+                if out:
+                    self.log(f"  ping stdout: {out}")
+                if err:
+                    self.log(f"  ping stderr: {err}")
                 return False
+        except subprocess.TimeoutExpired:
+            self.log("✗ Ping timed out")
+            return False
         except Exception as e:
             self.log(f"✗ Ping failed: {e}")
             return False
@@ -55,7 +80,7 @@ class DroneNetworkDiagnostics:
         self.log("\n" + "=" * 70)
         self.log("UDP CONNECTION TEST")
         self.log("=" * 70)
-
+        sock = None
         try:
             # Create UDP socket
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -65,8 +90,12 @@ class DroneNetworkDiagnostics:
 
             # Send heartbeat command
             heartbeat = bytes([1, 1])
-            sock.sendto(heartbeat, (self.DRONE_IP, self.UDP_PORT))
-            self.log(f"Sent: {heartbeat.hex()}")
+            try:
+                sock.sendto(heartbeat, (self.DRONE_IP, self.UDP_PORT))
+                self.log(f"Sent: {heartbeat.hex()}")
+            except Exception as e:
+                self.log(f"✗ Failed to send heartbeat: {e}")
+                return False
 
             # Wait for response
             try:
@@ -84,17 +113,22 @@ class DroneNetworkDiagnostics:
                 if len(data) >= 3:
                     self.log(f"  Byte 2 (screen state): 0x{data[2]:02x} ({data[2]})")
 
-                sock.close()
                 return True
 
             except socket.timeout:
                 self.log("✗ No response received (timeout)")
-                sock.close()
                 return False
 
         except Exception as e:
             self.log(f"✗ UDP test failed: {e}")
             return False
+
+        finally:
+            if sock:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
 
     def capture_udp_packets(self, duration: int = 10):
         """
@@ -107,19 +141,24 @@ class DroneNetworkDiagnostics:
         self.log("=" * 70)
         self.log("Sending heartbeats and capturing all responses...")
 
+        sock = None
+        start_time = time.time()
+        packet_count = 0
+        heartbeat_count = 0
+
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(0.5)
 
-            start_time = time.time()
-            packet_count = 0
-            heartbeat_count = 0
-
             while time.time() - start_time < duration:
                 # Send heartbeat
                 heartbeat = bytes([1, 1])
-                sock.sendto(heartbeat, (self.DRONE_IP, self.UDP_PORT))
-                heartbeat_count += 1
+                try:
+                    sock.sendto(heartbeat, (self.DRONE_IP, self.UDP_PORT))
+                    heartbeat_count += 1
+                except Exception as e:
+                    self.log(f"✗ Failed to send heartbeat: {e}")
+                    break
 
                 # Try to receive response
                 try:
@@ -129,15 +168,26 @@ class DroneNetworkDiagnostics:
                 except socket.timeout:
                     pass
 
-                time.sleep(1.0)
+                # Allow user to interrupt capture cleanly
+                try:
+                    time.sleep(1.0)
+                except KeyboardInterrupt:
+                    self.log("Capture interrupted by user")
+                    break
 
-            sock.close()
             self.log("\nCapture complete:")
             self.log(f"  Heartbeats sent: {heartbeat_count}")
             self.log(f"  Responses received: {packet_count}")
 
         except Exception as e:
             self.log(f"✗ Capture failed: {e}")
+
+        finally:
+            if sock:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
 
     def test_experimental_commands(self):
         """Test various command patterns to discover control protocol"""
@@ -147,7 +197,22 @@ class DroneNetworkDiagnostics:
         self.log("⚠️  WARNING: This will send various commands to the drone!")
         self.log("Make sure the drone is in a safe location.")
 
-        response = input("\nProceed? (yes/no): ")
+        # In non-interactive environments (CI, piped input), avoid blocking
+        try:
+            if not sys.stdin or not sys.stdin.isatty():
+                self.log("⚠ Non-interactive stdin detected; skipping experimental commands")
+                return
+        except Exception:
+            # If stdin properties are unavailable, skip to be safe
+            self.log("⚠ stdin state unknown; skipping experimental commands")
+            return
+
+        try:
+            response = input("\nProceed? (yes/no): ")
+        except EOFError:
+            self.log("✗ No input available; skipping experimental commands")
+            return
+
         if response.lower() != "yes":
             self.log("Cancelled by user")
             return

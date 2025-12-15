@@ -113,6 +113,7 @@ The project includes:
 - `drone_controller_advanced.py` - Experimental flight controls
 - `REVERSE_ENGINEERING_NOTES.md` - Technical documentation
 - `app.py` - Original web app (deprecated)
+ - `docs/API_REFERENCE.md` - Concise API and usage reference for modules
 
 ## Contributing
 

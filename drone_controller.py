@@ -91,15 +91,30 @@ class TEKYDroneController:
         self.is_running = False
         self.is_connected = False
         
+        # Wait for threads to stop before closing socket
         if self.heartbeat_thread:
             self.heartbeat_thread.join(timeout=2)
         
         if self.receive_thread:
             self.receive_thread.join(timeout=2)
-            
+        
+        # Gracefully shutdown socket before closing
         if self.udp_socket:
-            self.udp_socket.close()
-            self.udp_socket = None
+            try:
+                # For UDP, shutdown is not strictly necessary but helps signal intent
+                # Setting timeout to 0 prevents blocking on any pending operations
+                self.udp_socket.settimeout(0)
+                # UDP doesn't have shutdown() like TCP, but we can stop sending
+                # by simply not calling sendto() anymore (handled by is_running flag)
+            except Exception as e:
+                print(f"Note: Socket shutdown signal: {e}")
+            
+            try:
+                self.udp_socket.close()
+            except Exception as e:
+                print(f"Note: Socket close: {e}")
+            finally:
+                self.udp_socket = None
         
         if self.video_capture:
             self.video_capture.release()
@@ -115,7 +130,7 @@ class TEKYDroneController:
         Returns:
             True if sent successfully, False otherwise
         """
-        if not self.udp_socket:
+        if not self.udp_socket or not self.is_connected:
             print("Error: Not connected to drone")
             return False
         
@@ -123,6 +138,11 @@ class TEKYDroneController:
             self.udp_socket.sendto(command, (self.DRONE_IP, self.UDP_PORT))
             print(f"Sent command: {command.hex()}")
             return True
+        except OSError as e:
+            # Handle socket errors gracefully (including WinError 10054)
+            print(f"Socket error sending command: {e}")
+            self.is_connected = False
+            return False
         except Exception as e:
             print(f"Error sending command: {e}")
             return False
@@ -145,16 +165,27 @@ class TEKYDroneController:
         if not self.udp_socket:
             return
         
-        self.udp_socket.settimeout(0.5)  # Short timeout for non-blocking
+        try:
+            self.udp_socket.settimeout(0.5)  # Short timeout for non-blocking
+        except Exception:
+            return  # Socket already closed
         
         while self.is_running:
             try:
+                if not self.udp_socket:  # Check if socket still exists
+                    break
                 data, addr = self.udp_socket.recvfrom(1024)
                 self._parse_response(data)
             except socket.timeout:
                 continue
+            except OSError as e:
+                # OSError includes WinError 10054 and other socket errors
+                if self.is_running:
+                    # Only print if we're still supposed to be running (not a planned shutdown)
+                    print(f"Connection closed by drone: {e}")
+                break
             except Exception as e:
-                if self.is_running:  # Only print if we're still supposed to be running
+                if self.is_running:
                     print(f"Receive error: {e}")
                 break
         print("Receive thread stopped")

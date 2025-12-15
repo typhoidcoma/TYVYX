@@ -2,7 +2,7 @@ import time
 
 
 def test_flight_controller_sends_commands():
-    from drone_controller_advanced import FlightController
+    from teky.drone_controller_advanced import FlightController
 
     sent = []
 

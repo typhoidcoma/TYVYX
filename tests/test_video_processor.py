@@ -1,6 +1,6 @@
 import numpy as np
 
-from drone_controller_yolo import DroneVideoProcessor
+from teky.drone_controller_yolo import DroneVideoProcessor
 
 
 def test_process_frame_no_yolo():

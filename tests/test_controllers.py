@@ -1,6 +1,6 @@
-from drone_controller import TEKYDroneController
-from drone_controller_advanced import TEKYDroneControllerAdvanced
-from drone_controller_yolo import TEKYDroneYOLO
+from teky.drone_controller import TEKYDroneController
+from teky.drone_controller_advanced import TEKYDroneControllerAdvanced
+from teky.drone_controller_yolo import TEKYDroneYOLO
 
 
 def test_controllers_start_video_fallback():

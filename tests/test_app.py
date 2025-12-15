@@ -1,4 +1,4 @@
-from app import app
+from teky.app import app
 
 
 def test_home_route():

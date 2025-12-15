@@ -1,26 +1,4 @@
-"""
-OpenCV video stream helper for TEKY project.
-
-Provides a small threaded wrapper around `cv2.VideoCapture` to
-continuously read frames from an RTSP URL with low buffer settings
-and expose a safe `read()` method.
-
-Example:
-
-    from video_stream import OpenCVVideoStream
-
-    stream = OpenCVVideoStream("rtsp://192.168.1.1:7070/webcam")
-    if stream.start():
-        while True:
-            ok, frame = stream.read()
-            if not ok:
-                break
-            # process frame (display, detect, etc.)
-        stream.stop()
-
-This small helper is useful when multiple controllers need a
-consistent way to open and manage the RTSP feed via OpenCV.
-"""
+"""OpenCV video stream helper packaged under `teky`."""
 
 from __future__ import annotations
 

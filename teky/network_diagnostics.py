@@ -1,7 +1,4 @@
-"""
-TEKY Drone Network Diagnostics Tool
-Test connectivity and capture UDP packets for analysis
-"""
+"""Network diagnostics packaged under `teky`."""
 
 import socket
 import time

@@ -1,11 +1,13 @@
 """Network diagnostics packaged under `teky`."""
 
+import os
 import socket
 import time
 import sys
 import shutil
 from contextlib import closing
 from datetime import datetime
+from pathlib import Path
 
 
 class DroneNetworkDiagnostics:
@@ -17,7 +19,16 @@ class DroneNetworkDiagnostics:
     TCP_PORT = 5000
 
     def __init__(self):
-        self.log_file = f"drone_packets_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        # Ensure logs directory exists (relative to repo root)
+        try:
+            logs_dir = Path("logs")
+            logs_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            # Fallback to current directory if creation fails
+            logs_dir = Path(".")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.log_file = str(logs_dir / f"drone_packets_{timestamp}.log")
 
     def log(self, message: str):
         """Log message to console and file"""

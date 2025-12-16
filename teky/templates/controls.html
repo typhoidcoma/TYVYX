@@ -3,6 +3,7 @@
   <div style="margin-bottom:8px">
     <button id="btn_connect_controller">Connect Controller</button>
   </div>
+  <div id="controller_indicator" style="margin-bottom:8px;font-weight:600">Controller: <span id="controller_name">unknown</span></div>
   <button id="btn_takeoff">Takeoff</button>
   <button id="btn_land">Land</button>
   <div style="display:flex;gap:6px;margin-top:6px">
@@ -14,6 +15,9 @@
   <div style="display:flex;gap:6px;margin-top:6px">
     <button id="btn_cam1">Camera 1</button>
     <button id="btn_cam2">Camera 2</button>
+  </div>
+  <div id="camera_spinner" style="display:none;margin-top:6px">
+    <span style="display:inline-block;padding:6px;background:#222;color:#fff;border-radius:4px">Switching camera…</span>
   </div>
   <div style="margin-top:6px">
     <button id="btn_start_video">Start Video</button>

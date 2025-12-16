@@ -19,7 +19,10 @@
   <div class="panel">
     <div class="left">
       <h3>Live Video</h3>
-      <img id="video" src="/video_feed" alt="Live video feed">
+      <div style="position:relative;display:inline-block">
+        <img id="video" src="/video_feed" alt="Live video feed">
+        <div id="video_overlay" style="display:none;position:absolute;left:0;top:0;right:0;bottom:0;align-items:center;justify-content:center;display:flex;background:rgba(0,0,0,0.45);color:#fff;font-weight:600;font-size:1.1rem;">Switching camera…</div>
+      </div>
       <div id="video_status" style="margin-top:8px;font-weight:600">Status: unknown</div>
     </div>
 

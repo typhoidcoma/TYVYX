@@ -236,7 +236,8 @@ class TEKYDroneController:
 			# Use the threaded OpenCVVideoStream helper for lower-latency reads
 			from .video_stream import OpenCVVideoStream
 
-			self.video_stream = OpenCVVideoStream(self.RTSP_URL, buffer_size=1)
+			# prefer TCP transport for RTSP streams to avoid Unsupported Transport errors
+			self.video_stream = OpenCVVideoStream(self.RTSP_URL, buffer_size=1, prefer_tcp=True)
 			if not self.video_stream.start():
 				print("Failed to open video stream with OpenCV")
 				print("Please ensure:")
@@ -274,10 +275,29 @@ class TEKYDroneController:
 		Args:
 			camera_num: 1 or 2
 		"""
-		if camera_num == 1:
-			self.send_command(self.CMD_CAMERA_1)
-		elif camera_num == 2:
-			self.send_command(self.CMD_CAMERA_2)
+		# send camera switch command
+		try:
+			if camera_num == 1:
+				cmd = self.CMD_CAMERA_1
+			elif camera_num == 2:
+				cmd = self.CMD_CAMERA_2
+			else:
+				return False
+			sent = self.send_command(cmd)
+			# If a threaded video stream is active, restart it so the new camera feed is picked up
+			if getattr(self, 'video_stream', None):
+				try:
+					self.video_stream.stop()
+					time.sleep(0.35)
+					# attempt to start stream again; prefer using existing method
+					started = self.start_video_stream()
+					return bool(started)
+				except Exception:
+					# Fall through to return whether the command was sent
+					return bool(sent)
+			return bool(sent)
+		except Exception:
+			return False
 
 	def switch_screen_mode(self, mode: int):
 		"""

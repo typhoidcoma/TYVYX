@@ -14,7 +14,11 @@ import cv2
 from typing import Optional, Tuple
 
 from .video_stream import OpenCVVideoStream
-from .drone_controller import TEKYDroneController
+try:
+    # Prefer advanced controller when available
+    from .drone_controller_advanced import TEKYDroneControllerAdvanced as _PreferredController
+except Exception:
+    from .drone_controller import TEKYDroneController as _PreferredController
 import shutil
 import subprocess
 import logging
@@ -31,7 +35,7 @@ _video_lock = threading.Lock()
 _video_source = None
 _last_successful_ports = None
 # Drone controller singleton
-_drone_controller: Optional[TEKYDroneController] = None
+_drone_controller = None
 
 
 # Config persistence
@@ -46,6 +50,16 @@ def _load_config():
                 cfg = json.load(f)
             _video_source = cfg.get("video_source", _video_source)
             _last_successful_ports = cfg.get("last_successful_ports", _last_successful_ports)
+            # Apply drone network settings if present
+            drone_cfg = cfg.get("drone", {}) or {}
+            try:
+                d = _drone_controller
+                if d is not None:
+                    d.DRONE_IP = drone_cfg.get("ip", d.DRONE_IP)
+                    d.UDP_PORT = int(drone_cfg.get("udp_port", d.UDP_PORT))
+                    d.RTSP_PORT = int(drone_cfg.get("rtsp_port", d.RTSP_PORT))
+            except Exception:
+                pass
             app.logger.info(f"Loaded config from {_config_path}")
     except Exception as e:
         app.logger.warning(f"Failed to load config: {e}")
@@ -53,7 +67,16 @@ def _load_config():
 
 def _save_config():
     try:
-        cfg = {"video_source": _video_source, "last_successful_ports": _last_successful_ports}
+        # include drone network settings if controller exists
+        drone_cfg = {}
+        try:
+            d = _drone_controller
+            if d is not None:
+                drone_cfg = {"ip": d.DRONE_IP, "udp_port": int(d.UDP_PORT), "rtsp_port": int(d.RTSP_PORT)}
+        except Exception:
+            drone_cfg = {}
+
+        cfg = {"video_source": _video_source, "last_successful_ports": _last_successful_ports, "drone": drone_cfg}
         with open(_config_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
         app.logger.info(f"Saved config to {_config_path}")
@@ -65,10 +88,28 @@ def _save_config():
 _load_config()
 
 
-def get_drone_controller() -> TEKYDroneController:
+def get_drone_controller():
     global _drone_controller
     if _drone_controller is None:
-        _drone_controller = TEKYDroneController()
+        # Instantiate preferred controller (advanced if available)
+        try:
+            _drone_controller = _PreferredController()
+        except Exception:
+            # last-resort fallback to basic controller class
+            from .drone_controller import TEKYDroneController
+            _drone_controller = TEKYDroneController()
+
+        # apply persisted drone config if any
+        try:
+            if _config_path.exists():
+                with open(_config_path, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+                drone_cfg = cfg.get('drone', {}) or {}
+                _drone_controller.DRONE_IP = drone_cfg.get('ip', _drone_controller.DRONE_IP)
+                _drone_controller.UDP_PORT = int(drone_cfg.get('udp_port', _drone_controller.UDP_PORT))
+                _drone_controller.RTSP_PORT = int(drone_cfg.get('rtsp_port', _drone_controller.RTSP_PORT))
+        except Exception:
+            pass
     return _drone_controller
 
 
@@ -79,7 +120,11 @@ def get_video_stream() -> OpenCVVideoStream:
             # Default RTSP source — drone default IP and port
             controller = get_drone_controller()
             source = _video_source or f"rtsp://{controller.DRONE_IP}:{controller.RTSP_PORT}/webcam"
-            _video_stream = OpenCVVideoStream(source)
+            # prefer TCP for RTSP streams to avoid Unsupported Transport errors
+            if isinstance(source, str) and source.lower().startswith('rtsp://'):
+                _video_stream = OpenCVVideoStream(source, prefer_tcp=True)
+            else:
+                _video_stream = OpenCVVideoStream(source)
             started = _video_stream.start(timeout=3.0)
             app.logger.info(f"Video stream started: {started} (source={source})")
         return _video_stream
@@ -123,7 +168,11 @@ def set_video_source(feed_type: str) -> Tuple[bool, str]:
                 return False, f"Unknown feed type: {feed_type}"
 
             _video_source = src
-            _video_stream = OpenCVVideoStream(src)
+            # prefer TCP for RTSP streams to avoid Unsupported Transport errors
+            if isinstance(src, str) and src.lower().startswith('rtsp://'):
+                _video_stream = OpenCVVideoStream(src, prefer_tcp=True)
+            else:
+                _video_stream = OpenCVVideoStream(src)
             started = _video_stream.start(timeout=3.0)
             app.logger.info(f"set_video_source -> started={started} src={src}")
             if started:
@@ -411,9 +460,51 @@ def drone_status():
             'is_running': bool(getattr(d, 'is_running', False)),
             'device_type': getattr(d, 'device_type', None)
         }
+        # include controller class name for UI display
+        try:
+            status['controller_class'] = d.__class__.__name__
+        except Exception:
+            status['controller_class'] = None
         return jsonify({'ok': True, 'status': status})
     except Exception as e:
         app.logger.error(f"drone_status error: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/drone/config', methods=['GET', 'POST'])
+def drone_config():
+    """GET returns current drone config; POST accepts JSON {ip, udp_port, rtsp_port} and persists it."""
+    try:
+        d = get_drone_controller()
+        if request.method == 'GET':
+            return jsonify({'ok': True, 'drone': {'ip': d.DRONE_IP, 'udp_port': int(d.UDP_PORT), 'rtsp_port': int(d.RTSP_PORT)}})
+
+        # POST - update
+        data = request.json or {}
+        ip = data.get('ip')
+        udp = data.get('udp_port')
+        rtsp = data.get('rtsp_port')
+        if ip:
+            d.DRONE_IP = str(ip)
+        if udp:
+            try:
+                d.UDP_PORT = int(udp)
+            except Exception:
+                pass
+        if rtsp:
+            try:
+                d.RTSP_PORT = int(rtsp)
+            except Exception:
+                pass
+
+        try:
+            _save_config()
+        except Exception:
+            pass
+
+        return jsonify({'ok': True, 'drone': {'ip': d.DRONE_IP, 'udp_port': int(d.UDP_PORT), 'rtsp_port': int(d.RTSP_PORT)}})
+    except Exception as e:
+        app.logger.error(f"drone_config error: {e}")
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 

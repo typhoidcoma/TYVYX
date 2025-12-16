@@ -19,10 +19,11 @@ class OpenCVVideoStream:
         name: optional name used for debug prints.
     """
 
-    def __init__(self, source: str | int, buffer_size: int = 1, name: str = "stream"):
+    def __init__(self, source: str | int, buffer_size: int = 1, name: str = "stream", prefer_tcp: bool = False):
         self.source = source
         self.buffer_size = buffer_size
         self.name = name
+        self.prefer_tcp = prefer_tcp
 
         self._cap: Optional[cv2.VideoCapture] = None
         self._thread: Optional[threading.Thread] = None
@@ -36,10 +37,30 @@ class OpenCVVideoStream:
         Returns True if capture opened successfully within `timeout` seconds.
         """
         try:
-            self._cap = cv2.VideoCapture(self.source)
+            # Try to open with FFMPEG backend first (better RTSP support)
+            try:
+                self._cap = cv2.VideoCapture(self.source, cv2.CAP_FFMPEG)
+            except Exception:
+                # Fallback to default/open with no explicit backend
+                self._cap = cv2.VideoCapture(self.source)
+
+            # If user requested TCP transport and GStreamer is available, try a TCP pipeline
+            if (self.prefer_tcp and (isinstance(self.source, str) and hasattr(cv2, 'CAP_GSTREAMER')) and not self._cap.isOpened()):
+                try:
+                    # GStreamer pipeline attempts to force RTSP over TCP and use appsink
+                    pipeline = (
+                        f"rtspsrc location={self.source} protocols=tcp ! rtph264depay ! avdec_h264 ! videoconvert ! appsink sync=false"
+                    )
+                    self._cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+                except Exception:
+                    pass
             # Attempt to set low buffer for lower latency
             try:
-                self._cap.set(cv2.CAP_PROP_BUFFERSIZE, self.buffer_size)
+                # Set a slightly larger buffer by default to help with jitter/packet loss.
+                # Keep user-specified buffer_size if provided, but ensure minimum of 1.
+                buf = max(1, int(self.buffer_size))
+                # Try setting the property; some backends ignore this.
+                self._cap.set(cv2.CAP_PROP_BUFFERSIZE, buf)
             except Exception:
                 pass
 

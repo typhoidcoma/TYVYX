@@ -24,31 +24,6 @@
     </div>
 
     <div class="right">
-      <h3>Connect to Drone WiFi</h3>
-      <label for="networks">Available networks</label>
-      <select id="networks"><option>Loading...</option></select>
-      <label for="feed_type">Video feed type</label>
-      <select id="feed_type">
-        <option value="rtsp">RTSP (default)</option>
-        <option value="http_mjpeg">HTTP MJPEG</option>
-        <option value="local0">Local camera 0</option>
-        <option value="auto">Auto-detect (probe after connect)</option>
-      </select>
-      <label for="ports" style="margin-top:6px">Trusted ports (choose one or more)</label>
-      <select id="ports" multiple style="height:110px">
-        <option value="7070" selected>7070 (drone RTSP default)</option>
-        <option value="554">554 (RTSP)</option>
-        <option value="8554">8554 (RTSP alt)</option>
-        <option value="80">80 (HTTP)</option>
-        <option value="8080">8080 (HTTP alt)</option>
-      </select>
-      <label style="display:block;margin-top:6px"><input id="probe" type="checkbox"> Auto-probe for feeds after connect</label>
-      <button id="reconnect" style="margin-top:6px">Reconnect Feed</button>
-      <label for="password">Password (if required)</label>
-      <input id="password" type="password" placeholder="Optional WiFi password">
-      <button id="connect">Connect</button>
-
-      {% include 'diagnostics.html' %}
       {% include 'controls.html' %}
     </div>
   </div>
@@ -112,132 +87,27 @@
       const feed_type = document.getElementById('feed_type').value;
       appendLog('Reconnecting video feed (' + feed_type + ')...');
       const btn = document.getElementById('reconnect');
-      btn.disabled = true;
-      try{
-        const resp = await fetch('/set_feed', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({feed_type})});
-        const body = await resp.json();
-        appendLog('Reconnect result: ' + JSON.stringify(body));
-        // force refresh of image and status
-        document.getElementById('video').src = '/video_feed?ts=' + Date.now();
-        setTimeout(()=>{ pollVideoStatus(); }, 500);
-      }catch(err){
-        appendLog('Reconnect failed: ' + err);
-      } finally{
-        btn.disabled = false;
-      }
-    });
-
-    // initial load
-    refreshNetworks();
-
-    // load suggested ports and pre-select
-    async function loadSuggestedPorts(){
-      try{
-        const res = await fetch('/suggested_ports');
-        const js = await res.json();
-        const ports = js.ports || [];
-        const sel = document.getElementById('ports');
-        // clear current selections
-        Array.from(sel.options).forEach(o => o.selected = ports.includes(parseInt(o.value)));
-        appendLog('Suggested ports loaded: ' + ports.join(','));
-      }catch(err){
-        appendLog('Failed to load suggested ports: ' + err);
-      }
-    }
-    loadSuggestedPorts();
-
-    // periodic refresh every 20 seconds
-    setInterval(refreshNetworks, 20000);
-
-    async function pollVideoStatus(){
-      try{
-        const res = await fetch('/video_status');
-        const js = await res.json();
-        const s = document.getElementById('video_status');
-        if(js.running){
-          s.textContent = `Status: running (source: ${js.source || 'unknown'})`;
-          document.getElementById('video').style.border = '2px solid #2ecc71';
-        } else {
-          s.textContent = `Status: stopped (source: ${js.source || 'none'})`;
-          document.getElementById('video').style.border = '2px solid #e74c3c';
-        }
-      }catch(err){
-        // network error
-        const s = document.getElementById('video_status');
-        s.textContent = 'Status: error';
-      }
-    }
-
-    // start polling video status
-    pollVideoStatus();
-    setInterval(pollVideoStatus, 3000);
-
-    // Probe UI
-    async function runProbe(){
-      appendLog('Running probe for likely feeds...');
-      const wrap = document.getElementById('probe_table_wrap');
-      wrap.innerHTML = 'Probing...';
-      try{
-        // include selected ports as a comma-separated query param
-        const portsSel = Array.from(document.getElementById('ports').selectedOptions).map(o=>o.value);
-        const q = portsSel.length ? '?ports=' + portsSel.join(',') : '';
-        const resp = await fetch('/probe' + q);
-        const js = await resp.json();
-        renderProbeResults(js.results || []);
-        appendLog('Probe complete');
-      }catch(err){
-        appendLog('Probe failed: ' + err);
-        document.getElementById('probe_table_wrap').innerText = 'Probe failed';
-      }
-    }
-
-    function renderProbeResults(results){
-      const wrap = document.getElementById('probe_table_wrap');
-      if(!results || results.length === 0){ wrap.innerText = 'No candidates found'; return; }
-      const table = document.createElement('table');
-      table.style.width = '100%';
-      table.style.borderCollapse = 'collapse';
-      const header = document.createElement('tr');
-      ['URL','OK','Actions'].forEach(h=>{ const th = document.createElement('th'); th.textContent = h; th.style.textAlign='left'; th.style.padding='6px'; table.appendChild(th); });
-      results.forEach(r=>{
-        const tr = document.createElement('tr');
-        const tdUrl = document.createElement('td'); tdUrl.style.padding='6px';
-        const a = document.createElement('a'); a.href = r.url; a.textContent = r.url; a.target = '_blank'; tdUrl.appendChild(a);
-        tr.appendChild(tdUrl);
-        const tdOk = document.createElement('td'); tdOk.style.padding='6px'; tdOk.textContent = r.ok ? 'yes' : 'no'; tr.appendChild(tdOk);
-        const tdAct = document.createElement('td'); tdAct.style.padding='6px';
-        const btn = document.createElement('button'); btn.textContent = 'Select';
-        btn.disabled = !r.ok;
-        btn.addEventListener('click', async ()=>{
-          btn.disabled = true;
-          appendLog('Selecting feed ' + r.url);
+      <script>
+        // Minimal page JS: only poll video status
+        async function pollVideoStatus(){
           try{
-            const res = await fetch('/set_feed', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({feed_type: r.url})});
-            const body = await res.json();
-            appendLog('Select result: ' + JSON.stringify(body));
-            document.getElementById('video').src = '/video_feed?ts=' + Date.now();
-            setTimeout(()=>{ pollVideoStatus(); }, 500);
-          }catch(err){ appendLog('Select failed: ' + err); }
-          btn.disabled = false;
-        });
-        tdAct.appendChild(btn);
-        tr.appendChild(tdAct);
-        table.appendChild(tr);
-      });
-      wrap.innerHTML = '';
-      wrap.appendChild(table);
-    }
-
-    document.getElementById('run_probe').addEventListener('click', runProbe);
-
-    // Flight controls loaded from static/controls.js
-
-    // If connect returned probe results, render them (hooked by connect handler)
-    (function interceptConnectForProbeRender(){
-      const old = document.getElementById('connect').onclick;
-      // handled in event listeners; instead patch appendLog to check for probe JSON not feasible here
-    })();
-  </script>
-  <script src="{{ url_for('static', filename='controls.js') }}"></script>
-</body>
-</html>
+            const res = await fetch('/video_status');
+            const js = await res.json();
+            const s = document.getElementById('video_status');
+            if(js.running){
+              s.textContent = `Status: running (source: ${js.source || 'unknown'})`;
+              document.getElementById('video').style.border = '2px solid #2ecc71';
+            } else {
+              s.textContent = `Status: stopped (source: ${js.source || 'none'})`;
+              document.getElementById('video').style.border = '2px solid #e74c3c';
+            }
+          }catch(err){
+            const s = document.getElementById('video_status');
+            s.textContent = 'Status: error';
+          }
+        }
+        pollVideoStatus();
+        setInterval(pollVideoStatus, 3000);
+      </script>
+      <script src="{{ url_for('static', filename='controls.js') }}"></script>
+        const ports = js.ports || [];

@@ -30,6 +30,14 @@
   }
 
   function init(){
+    bind('btn_connect_controller', async ()=>{
+      appendLog('Connecting controller...');
+      try{
+        const res = await fetch('/drone/connect_controller', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
+        const js = await res.json();
+        appendLog('Controller connect: ' + JSON.stringify(js));
+      }catch(err){ appendLog('Controller connect failed: ' + err); }
+    });
     bind('btn_takeoff', ()=> sendDroneAction('send',{bytes: '6401'}));
     bind('btn_land', ()=> sendDroneAction('send',{bytes: '6402'}));
     bind('btn_up', ()=> sendDroneAction('send',{bytes: '6301'}));

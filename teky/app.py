@@ -14,16 +14,16 @@ import cv2
 from typing import Optional, Tuple
 
 from .video_stream import OpenCVVideoStream
-from .network_diagnostics import DroneNetworkDiagnostics
 from .drone_controller import TEKYDroneController
 import shutil
 import subprocess
+import logging
+import json
+from pathlib import Path
 
 
 app = Flask(__name__, template_folder="templates")
-
-# Shared diagnostics instance for system operations and logging
-diagnostics = DroneNetworkDiagnostics()
+app.logger.setLevel(logging.INFO)
 
 # Shared video stream instance. We'll lazily initialize when first requested.
 _video_stream = None
@@ -32,6 +32,37 @@ _video_source = None
 _last_successful_ports = None
 # Drone controller singleton
 _drone_controller: Optional[TEKYDroneController] = None
+
+
+# Config persistence
+_config_path = Path("teky_config.json")
+
+
+def _load_config():
+    global _video_source, _last_successful_ports
+    try:
+        if _config_path.exists():
+            with open(_config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            _video_source = cfg.get("video_source", _video_source)
+            _last_successful_ports = cfg.get("last_successful_ports", _last_successful_ports)
+            app.logger.info(f"Loaded config from {_config_path}")
+    except Exception as e:
+        app.logger.warning(f"Failed to load config: {e}")
+
+
+def _save_config():
+    try:
+        cfg = {"video_source": _video_source, "last_successful_ports": _last_successful_ports}
+        with open(_config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        app.logger.info(f"Saved config to {_config_path}")
+    except Exception as e:
+        app.logger.warning(f"Failed to save config: {e}")
+
+
+# load persisted config if present
+_load_config()
 
 
 def get_drone_controller() -> TEKYDroneController:
@@ -46,10 +77,11 @@ def get_video_stream() -> OpenCVVideoStream:
     with _video_lock:
         if _video_stream is None:
             # Default RTSP source — drone default IP and port
-            source = _video_source or f"rtsp://{diagnostics.DRONE_IP}:{diagnostics.RTSP_PORT}/webcam"
+            controller = get_drone_controller()
+            source = _video_source or f"rtsp://{controller.DRONE_IP}:{controller.RTSP_PORT}/webcam"
             _video_stream = OpenCVVideoStream(source)
             started = _video_stream.start(timeout=3.0)
-            diagnostics.log(f"Video stream started: {started} (source={source})")
+            app.logger.info(f"Video stream started: {started} (source={source})")
         return _video_stream
 
 
@@ -75,9 +107,11 @@ def set_video_source(feed_type: str) -> Tuple[bool, str]:
                 # explicit full URL provided
                 src = feed_type
             elif feed_type == 'rtsp':
-                src = f"rtsp://{diagnostics.DRONE_IP}:{diagnostics.RTSP_PORT}/webcam"
+                controller = get_drone_controller()
+                src = f"rtsp://{controller.DRONE_IP}:{controller.RTSP_PORT}/webcam"
             elif feed_type == 'http_mjpeg':
-                src = f"http://{diagnostics.DRONE_IP}:{diagnostics.RTSP_PORT}/mjpeg"
+                controller = get_drone_controller()
+                src = f"http://{controller.DRONE_IP}:{controller.RTSP_PORT}/mjpeg"
             elif feed_type.startswith('local'):
                 # expected like local0, local1
                 try:
@@ -91,7 +125,12 @@ def set_video_source(feed_type: str) -> Tuple[bool, str]:
             _video_source = src
             _video_stream = OpenCVVideoStream(src)
             started = _video_stream.start(timeout=3.0)
-            diagnostics.log(f"set_video_source -> started={started} src={src}")
+            app.logger.info(f"set_video_source -> started={started} src={src}")
+            if started:
+                try:
+                    _save_config()
+                except Exception:
+                    pass
             return bool(started), f"started={started} src={src}"
         except Exception as e:
             return False, str(e)
@@ -107,16 +146,10 @@ def home():
 def networks():
     """Return JSON list of nearby WiFi networks (SSID strings)."""
     try:
-        results = diagnostics.scan_wifi_networks()
-        # Normalize to simple list of SSIDs where possible
-        ssids = []
-        for r in results:
-            ssid = r.get("ssid") if isinstance(r, dict) else None
-            if ssid:
-                ssids.append({"ssid": ssid, "info": r})
-        return jsonify({"networks": ssids})
+        app.logger.info("/networks endpoint disabled in simplified app")
+        return jsonify({"networks": []})
     except Exception as e:
-        diagnostics.log(f"Error scanning networks: {e}")
+        app.logger.error(f"Error scanning networks: {e}")
         return jsonify({"networks": [], "error": str(e)})
 
 
@@ -126,48 +159,8 @@ def _connect_platform(ssid: str, password: Optional[str] = None) -> Tuple[bool, 
     Returns (success, message). This uses best-effort methods and may
     require elevated privileges depending on the host OS.
     """
-    system = diagnostics and diagnostics.log and __import__("platform").system().lower()
-    try:
-        import subprocess
-        import shutil
-
-        diagnostics.log(f"Attempting to connect to SSID: {ssid} (platform={system})")
-
-        # Linux: nmcli
-        if system == "linux" and shutil.which("nmcli"):
-            cmd = ["nmcli", "device", "wifi", "connect", ssid]
-            if password:
-                cmd.extend(["password", password])
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-            if out.returncode == 0:
-                return True, out.stdout.strip()
-            return False, out.stderr.strip() or out.stdout.strip()
-
-        # macOS: networksetup
-        if system == "darwin" and shutil.which("networksetup"):
-            # networksetup expects an interface name; try to find 'Wi-Fi'
-            iface = "Wi-Fi"
-            cmd = ["networksetup", "-setairportnetwork", iface, ssid]
-            if password:
-                cmd.append(password)
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-            if out.returncode == 0:
-                return True, out.stdout.strip()
-            return False, out.stderr.strip() or out.stdout.strip()
-
-        # Windows: netsh (best-effort)
-        if system == "windows" and shutil.which("netsh"):
-            # Try the simple connect command; may require a saved profile
-            cmd = ["netsh", "wlan", "connect", f"ssid={ssid}"]
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-            if out.returncode == 0:
-                return True, out.stdout.strip()
-            # If failed, return stderr for diagnostics
-            return False, out.stderr.strip() or out.stdout.strip()
-
-        return False, f"No supported connection tool found for platform {system}"
-    except Exception as e:
-        return False, str(e)
+    # Network-based connection disabled in simplified app
+    return False, "platform connect disabled"
 
 
 def wait_for_network_ready(timeout: int = 20, interval: float = 1.0) -> bool:
@@ -175,14 +168,7 @@ def wait_for_network_ready(timeout: int = 20, interval: float = 1.0) -> bool:
 
     Returns True if ping succeeded within timeout.
     """
-    start = time.time()
-    while time.time() - start < timeout:
-        try:
-            if diagnostics.test_ping():
-                return True
-        except Exception:
-            pass
-        time.sleep(interval)
+    # Network readiness checks removed in simplified app
     return False
 
 
@@ -191,33 +177,8 @@ def get_signal_info(ssid: str = None) -> dict:
 
     This is best-effort and may return empty dict on failure.
     """
-    info = {}
-    system = __import__("platform").system().lower()
-    try:
-        if system == 'windows' and shutil.which('netsh'):
-            out = subprocess.run(['netsh', 'wlan', 'show', 'interfaces'], capture_output=True, text=True, timeout=5)
-            text = out.stdout or out.stderr or ''
-            for line in text.splitlines():
-                if ':' in line:
-                    k, v = [p.strip() for p in line.split(':', 1)]
-                    info[k.lower().replace(' ', '_')] = v
-            return info
-
-        if system == 'linux' and shutil.which('nmcli'):
-            out = subprocess.run(['nmcli', '-t', '-f', 'IN-USE,SSID,SIGNAL', 'dev', 'wifi'], capture_output=True, text=True, timeout=5)
-            text = out.stdout or out.stderr or ''
-            for line in text.splitlines():
-                parts = line.split(':')
-                if len(parts) >= 3:
-                    in_use, ss, sig = parts[0], parts[1], parts[2]
-                    if in_use == '*' or (ssid and ss == ssid):
-                        info['ssid'] = ss
-                        info['signal'] = sig
-                        break
-            return info
-    except Exception:
-        pass
-    return info
+    # Signal info not available in simplified app
+    return {}
 
 
 def verify_connected_to_ssid(ssid: str, timeout: int = 20, interval: float = 1.0) -> bool:
@@ -226,7 +187,7 @@ def verify_connected_to_ssid(ssid: str, timeout: int = 20, interval: float = 1.0
     Uses OS-specific tooling (netsh/nmcli/airport) and repeated checks
     until `timeout` seconds elapse. Returns True if association detected.
     """
-    diagnostics.log(f"Verifying host association to SSID '{ssid}' (timeout={timeout})")
+    app.logger.info(f"Verifying host association to SSID '{ssid}' (timeout={timeout})")
     system = __import__("platform").system().lower()
     start = time.time()
     while time.time() - start < timeout:
@@ -236,7 +197,7 @@ def verify_connected_to_ssid(ssid: str, timeout: int = 20, interval: float = 1.0
                 out = subprocess.run(['netsh', 'wlan', 'show', 'interfaces'], capture_output=True, text=True, timeout=5)
                 text = out.stdout or out.stderr or ''
                 if ssid in text:
-                    diagnostics.log(f"verify: found ssid in netsh output")
+                    app.logger.info(f"verify: found ssid in netsh output")
                     return True
 
             # Linux
@@ -246,7 +207,7 @@ def verify_connected_to_ssid(ssid: str, timeout: int = 20, interval: float = 1.0
                 for line in text.splitlines():
                     parts = line.split(':')
                     if len(parts) >= 2 and parts[0] == 'yes' and parts[1] == ssid:
-                        diagnostics.log("verify: nmcli reports active connection to ssid")
+                        app.logger.info("verify: nmcli reports active connection to ssid")
                         return True
 
             # macOS
@@ -258,7 +219,7 @@ def verify_connected_to_ssid(ssid: str, timeout: int = 20, interval: float = 1.0
                         out = subprocess.run([airport, '-I'], capture_output=True, text=True, timeout=5)
                         text = out.stdout or out.stderr or ''
                         if ssid in text:
-                            diagnostics.log('verify: airport reports association')
+                            app.logger.info('verify: airport reports association')
                             return True
                 except Exception:
                     pass
@@ -272,11 +233,11 @@ def verify_connected_to_ssid(ssid: str, timeout: int = 20, interval: float = 1.0
                 ps = None
 
         except Exception as e:
-            diagnostics.log(f"verify_connected_to_ssid check error: {e}")
+            app.logger.error(f"verify_connected_to_ssid check error: {e}")
 
         time.sleep(interval)
 
-    diagnostics.log(f"verify_connected_to_ssid: timed out waiting for SSID {ssid}")
+    app.logger.info(f"verify_connected_to_ssid: timed out waiting for SSID {ssid}")
     return False
 
 
@@ -307,9 +268,10 @@ def probe_video_feeds(ip: str = None, ports: Optional[list] = None, timeout_per:
     Returns a list of dicts with attempt results.
     """
     results = []
-    ip = ip or diagnostics.DRONE_IP
+    controller = get_drone_controller()
+    ip = ip or controller.DRONE_IP
     # candidate patterns
-    ports = ports or [diagnostics.RTSP_PORT, 554, 8554]
+    ports = ports or [controller.RTSP_PORT, 554, 8554]
     rtsp_paths = ["/webcam", "/live", "/stream", ""]
     http_paths = ["/mjpeg", "/video", "/stream"]
 
@@ -323,7 +285,7 @@ def probe_video_feeds(ip: str = None, ports: Optional[list] = None, timeout_per:
                 return results
 
     # Try HTTP MJPEG candidates
-    for p in [80, 8080, diagnostics.RTSP_PORT]:
+    for p in [80, 8080, controller.RTSP_PORT]:
         for path in http_paths:
             url = f"http://{ip}:{p}{path}"
             ok = try_start_source(url, timeout=timeout_per)
@@ -336,89 +298,7 @@ def probe_video_feeds(ip: str = None, ports: Optional[list] = None, timeout_per:
 
 @app.route("/connect", methods=["POST"])
 def connect():
-    """Connect the host to the selected SSID."""
-    data = request.json or {}
-    ssid = data.get("ssid")
-    password = data.get("password")
-    if not ssid:
-        return jsonify({"success": False, "message": "No SSID provided"}), 400
-
-    # Optional feed_type may be provided by front-end
-    feed_type = data.get("feed_type")
-
-    success, msg = _connect_platform(ssid, password)
-    diagnostics.log(f"Connect result: initial={success} msg={msg}")
-
-    # verify association to the requested SSID before proceeding
-    verified = False
-    if success:
-        diagnostics.log(f"Verifying association to SSID '{ssid}'...")
-        try:
-            verified = verify_connected_to_ssid(ssid, timeout=20)
-        except Exception as e:
-            diagnostics.log(f"verify_connected_to_ssid error: {e}")
-
-        if not verified:
-            diagnostics.log(f"Failed to verify association to SSID '{ssid}'")
-            # treat as failure for downstream actions
-            success = False
-            msg = f"Failed to associate to SSID {ssid}"
-
-    response = {"success": success, "message": msg, "verified": verified}
-
-    # If connection was successful and a feed type was provided, attempt to set it
-    if success and feed_type and feed_type != 'auto':
-        started, start_msg = set_video_source(feed_type)
-        diagnostics.log(f"Auto-start video after connect: started={started} msg={start_msg}")
-        response.update({"video_started": started, "video_msg": start_msg})
-
-    # If probe requested (or feed_type=='auto'), perform network quality checks and probe candidate feeds
-    probe_requested = data.get('probe', False) or (feed_type == 'auto')
-    if success and probe_requested:
-        diagnostics.log("Starting post-connect verification and feed probing...")
-        net_ready = wait_for_network_ready(timeout=20)
-        signal = get_signal_info(ssid)
-        response.update({"network_ready": net_ready, "signal_info": signal})
-
-        if net_ready:
-            # honor user-provided trusted ports if present
-            ports_param = data.get('ports')
-            ports_list = None
-            if ports_param:
-                try:
-                    ports_list = [int(p) for p in ports_param]
-                except Exception:
-                    ports_list = None
-
-            probe_results = probe_video_feeds(ports=ports_list)
-            # If probe found a working feed, auto-start it
-            selected = None
-            for p in probe_results:
-                if p.get('ok'):
-                    selected = p['url']
-                    break
-
-            if selected:
-                # start and set as global source
-                ok, msg2 = set_video_source(selected)
-                diagnostics.log(f"Auto-start selected feed: ok={ok} src={selected}")
-                # remember port(s) used for this successful feed
-                try:
-                    import re
-                    m = re.search(r":(\d+)(?:/|$)", selected)
-                    if m:
-                        global _last_successful_ports
-                        _last_successful_ports = [int(m.group(1))]
-                except Exception:
-                    pass
-
-                response.update({"probe_results": probe_results, "selected_feed": selected, "selected_ok": ok, "selected_msg": msg2})
-            else:
-                response.update({"probe_results": probe_results})
-        else:
-            response.update({"probe_results": [], "selected_feed": None})
-
-    return jsonify(response)
+    return jsonify({"success": False, "message": "Connect disabled in simplified app"}), 403
 
 
 def gen_mjpeg(stream: OpenCVVideoStream):
@@ -479,11 +359,11 @@ def probe():
         except Exception:
             ports_list = None
     try:
-        diagnostics.log(f"Running feed probe for ip={ip or diagnostics.DRONE_IP}")
+        app.logger.info(f"Running feed probe for ip={ip}")
         results = probe_video_feeds(ip=ip, ports=ports_list)
         return jsonify({'results': results})
     except Exception as e:
-        diagnostics.log(f"Probe endpoint failed: {e}")
+        app.logger.error(f"Probe endpoint failed: {e}")
         return jsonify({'results': [], 'error': str(e)}), 500
 
 
@@ -496,7 +376,7 @@ def video_status():
             source = globals().get('_video_source', None)
         return jsonify({'running': running, 'source': str(source) if source is not None else None})
     except Exception as e:
-        diagnostics.log(f"video_status error: {e}")
+        app.logger.error(f"video_status error: {e}")
         return jsonify({'running': False, 'source': None, 'error': str(e)})
 
 
@@ -517,7 +397,7 @@ def suggested_ports():
             defaults = [7070, 554]
         return jsonify({'ports': defaults})
     except Exception as e:
-        diagnostics.log(f"suggested_ports error: {e}")
+        app.logger.error(f"suggested_ports error: {e}")
         return jsonify({'ports': []})
 
 
@@ -533,7 +413,7 @@ def drone_status():
         }
         return jsonify({'ok': True, 'status': status})
     except Exception as e:
-        diagnostics.log(f"drone_status error: {e}")
+        app.logger.error(f"drone_status error: {e}")
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
@@ -552,7 +432,7 @@ def drone_connect_controller():
         connected = d.connect()
         return jsonify({'ok': bool(connected), 'message': 'controller_connected' if connected else 'failed'})
     except Exception as e:
-        diagnostics.log(f"drone_connect_controller error: {e}")
+        app.logger.error(f"drone_connect_controller error: {e}")
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
@@ -563,7 +443,7 @@ def drone_disconnect():
         d.disconnect()
         return jsonify({'ok': True})
     except Exception as e:
-        diagnostics.log(f"drone_disconnect error: {e}")
+        app.logger.error(f"drone_disconnect error: {e}")
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 

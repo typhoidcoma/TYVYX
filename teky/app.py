@@ -15,6 +15,7 @@ from typing import Optional, Tuple
 
 from .video_stream import OpenCVVideoStream
 from .network_diagnostics import DroneNetworkDiagnostics
+from .drone_controller import TEKYDroneController
 import shutil
 import subprocess
 
@@ -29,6 +30,15 @@ _video_stream = None
 _video_lock = threading.Lock()
 _video_source = None
 _last_successful_ports = None
+# Drone controller singleton
+_drone_controller: Optional[TEKYDroneController] = None
+
+
+def get_drone_controller() -> TEKYDroneController:
+    global _drone_controller
+    if _drone_controller is None:
+        _drone_controller = TEKYDroneController()
+    return _drone_controller
 
 
 def get_video_stream() -> OpenCVVideoStream:
@@ -208,6 +218,66 @@ def get_signal_info(ssid: str = None) -> dict:
     except Exception:
         pass
     return info
+
+
+def verify_connected_to_ssid(ssid: str, timeout: int = 20, interval: float = 1.0) -> bool:
+    """Best-effort verification that the host is associated to `ssid`.
+
+    Uses OS-specific tooling (netsh/nmcli/airport) and repeated checks
+    until `timeout` seconds elapse. Returns True if association detected.
+    """
+    diagnostics.log(f"Verifying host association to SSID '{ssid}' (timeout={timeout})")
+    system = __import__("platform").system().lower()
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            # Windows
+            if system == 'windows' and shutil.which('netsh'):
+                out = subprocess.run(['netsh', 'wlan', 'show', 'interfaces'], capture_output=True, text=True, timeout=5)
+                text = out.stdout or out.stderr or ''
+                if ssid in text:
+                    diagnostics.log(f"verify: found ssid in netsh output")
+                    return True
+
+            # Linux
+            if system == 'linux' and shutil.which('nmcli'):
+                out = subprocess.run(['nmcli', '-t', '-f', 'ACTIVE,SSID', 'dev', 'wifi'], capture_output=True, text=True, timeout=5)
+                text = out.stdout or out.stderr or ''
+                for line in text.splitlines():
+                    parts = line.split(':')
+                    if len(parts) >= 2 and parts[0] == 'yes' and parts[1] == ssid:
+                        diagnostics.log("verify: nmcli reports active connection to ssid")
+                        return True
+
+            # macOS
+            if system == 'darwin':
+                # try airport
+                try:
+                    airport = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
+                    if shutil.which(airport) or Path(airport).exists():
+                        out = subprocess.run([airport, '-I'], capture_output=True, text=True, timeout=5)
+                        text = out.stdout or out.stderr or ''
+                        if ssid in text:
+                            diagnostics.log('verify: airport reports association')
+                            return True
+                except Exception:
+                    pass
+
+            # Generic psutil/netifaces fallback: check connection list
+            try:
+                import importlib as _importlib
+                ps = _importlib.import_module('psutil')
+                # On many platforms the active SSID isn't exposed; skip if unavailable
+            except Exception:
+                ps = None
+
+        except Exception as e:
+            diagnostics.log(f"verify_connected_to_ssid check error: {e}")
+
+        time.sleep(interval)
+
+    diagnostics.log(f"verify_connected_to_ssid: timed out waiting for SSID {ssid}")
+    return False
 
 
 def try_start_source(src, timeout: float = 3.0) -> bool:
@@ -449,6 +519,111 @@ def suggested_ports():
     except Exception as e:
         diagnostics.log(f"suggested_ports error: {e}")
         return jsonify({'ports': []})
+
+
+@app.route('/drone/status')
+def drone_status():
+    """Return simple status of controller (connected, running video)."""
+    try:
+        d = get_drone_controller()
+        status = {
+            'is_connected': bool(getattr(d, 'is_connected', False)),
+            'is_running': bool(getattr(d, 'is_running', False)),
+            'device_type': getattr(d, 'device_type', None)
+        }
+        return jsonify({'ok': True, 'status': status})
+    except Exception as e:
+        diagnostics.log(f"drone_status error: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/drone/connect_controller', methods=['POST'])
+def drone_connect_controller():
+    """Attempt to start UDP controller connection (assumes host on drone WiFi)."""
+    data = request.json or {}
+    ssid = data.get('ssid')
+    if ssid:
+        ok = verify_connected_to_ssid(ssid, timeout=10)
+        if not ok:
+            return jsonify({'ok': False, 'message': f'Host not associated to SSID {ssid}'}), 409
+
+    try:
+        d = get_drone_controller()
+        connected = d.connect()
+        return jsonify({'ok': bool(connected), 'message': 'controller_connected' if connected else 'failed'})
+    except Exception as e:
+        diagnostics.log(f"drone_connect_controller error: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/drone/disconnect', methods=['POST'])
+def drone_disconnect():
+    try:
+        d = get_drone_controller()
+        d.disconnect()
+        return jsonify({'ok': True})
+    except Exception as e:
+        diagnostics.log(f"drone_disconnect error: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/drone/command', methods=['POST'])
+def drone_command():
+    """Send a flight/control command to the drone controller.
+
+    JSON payload: {action: 'takeoff'|'land'|'switch_camera'|'start_video'|'stop_video'|'send', params: {...}}
+    """
+    data = request.json or {}
+    action = data.get('action')
+    params = data.get('params') or {}
+    if not action:
+        return jsonify({'ok': False, 'error': 'No action specified'}), 400
+
+    try:
+        d = get_drone_controller()
+        # safety: ensure host appears connected to drone network
+        # do not block long here
+        # Map actions
+        if action == 'connect':
+            ok = d.connect()
+            return jsonify({'ok': bool(ok)})
+        if action == 'disconnect':
+            d.disconnect()
+            return jsonify({'ok': True})
+        if action == 'start_video':
+            ok = d.start_video_stream()
+            return jsonify({'ok': bool(ok)})
+        if action == 'stop_video':
+            try:
+                if getattr(d, 'video_stream', None):
+                    d.video_stream.stop()
+                return jsonify({'ok': True})
+            except Exception as e:
+                return jsonify({'ok': False, 'error': str(e)}), 500
+        if action == 'switch_camera':
+            cam = int(params.get('camera', 1))
+            d.switch_camera(cam)
+            return jsonify({'ok': True, 'camera': cam})
+        if action == 'switch_screen':
+            mode = int(params.get('mode', 1))
+            d.switch_screen_mode(mode)
+            return jsonify({'ok': True, 'mode': mode})
+        if action == 'send':
+            # send arbitrary hex bytes: params.bytes = '010203'
+            b = params.get('bytes')
+            if not b:
+                return jsonify({'ok': False, 'error': 'no bytes provided'}), 400
+            try:
+                payload = bytes.fromhex(b)
+            except Exception as e:
+                return jsonify({'ok': False, 'error': f'invalid hex: {e}'}), 400
+            ok = d.send_command(payload)
+            return jsonify({'ok': bool(ok)})
+
+        return jsonify({'ok': False, 'error': f'Unknown action {action}'}), 400
+    except Exception as e:
+        diagnostics.log(f"drone_command error: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 if __name__ == "__main__":

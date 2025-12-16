@@ -48,13 +48,8 @@
       <input id="password" type="password" placeholder="Optional WiFi password">
       <button id="connect">Connect</button>
 
-      <h3>Diagnostics Log</h3>
-      <div id="log" class="log"></div>
-      <h3 style="margin-top:12px">Probe Results</h3>
-      <div id="probe_area">
-        <button id="run_probe">Run Probe</button>
-        <div id="probe_table_wrap" style="margin-top:8px"></div>
-      </div>
+      {% include 'diagnostics.html' %}
+      {% include 'controls.html' %}
     </div>
   </div>
 
@@ -235,11 +230,14 @@
 
     document.getElementById('run_probe').addEventListener('click', runProbe);
 
+    // Flight controls loaded from static/controls.js
+
     // If connect returned probe results, render them (hooked by connect handler)
     (function interceptConnectForProbeRender(){
       const old = document.getElementById('connect').onclick;
       // handled in event listeners; instead patch appendLog to check for probe JSON not feasible here
     })();
   </script>
+  <script src="{{ url_for('static', filename='controls.js') }}"></script>
 </body>
 </html>

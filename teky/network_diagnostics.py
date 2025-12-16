@@ -1,12 +1,16 @@
 """Network diagnostics packaged under `teky`."""
 
 import os
+import os
 import socket
 import time
 import sys
 import shutil
+import platform
 from contextlib import closing
 from datetime import datetime
+from pathlib import Path
+import importlib
 from pathlib import Path
 
 
@@ -260,6 +264,264 @@ class DroneNetworkDiagnostics:
 
         except Exception as e:
             self.log(f"✗ Test failed: {e}")
+
+    def list_wifi_adapters(self):
+        """List available WiFi adapters on the host.
+
+        Returns a list of dicts: {name, description, state}
+        This attempts several platform-specific strategies and logs
+        useful information for diagnostic use.
+        """
+        adapters = []
+
+        self.log("Starting WiFi adapter discovery...")
+
+        try:
+            system = platform.system().lower()
+
+            # Windows: use netsh
+            if system == "windows" and shutil.which("netsh"):
+                try:
+                    import subprocess
+
+                    self.log("Using netsh to enumerate wireless interfaces")
+                    out = subprocess.run(
+                        ["netsh", "wlan", "show", "interfaces"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    text = out.stdout or out.stderr or ""
+                    self.log("netsh output:\n" + text.strip())
+
+                    # Parse interface blocks
+                    current = {}
+                    for line in text.splitlines():
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if line.startswith("Name") and ":" in line:
+                            # start of new block
+                            if current:
+                                adapters.append(current)
+                                current = {}
+                            _, val = line.split(":", 1)
+                            current["name"] = val.strip()
+                        else:
+                            if ":" in line:
+                                k, v = [p.strip() for p in line.split(":", 1)]
+                                current[k.lower().replace(" ", "_")] = v
+                    if current:
+                        adapters.append(current)
+
+                    self.log(f"Found {len(adapters)} adapter(s) via netsh")
+                    if adapters:
+                        self.log(f"Adapters: {[a.get('name') or a for a in adapters]}")
+                    return adapters
+                except Exception as e:
+                    self.log(f"✗ netsh parse failed: {e}")
+
+            # macOS: networksetup or airport
+            if system == "darwin":
+                # Try networksetup first
+                try:
+                    import subprocess
+                    if shutil.which("networksetup"):
+                        self.log("Using networksetup to enumerate hardware ports")
+                        out = subprocess.run(
+                            ["networksetup", "-listallhardwareports"],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        text = out.stdout or out.stderr or ""
+                        self.log("networksetup output:\n" + text.strip())
+                        cur = {}
+                        for line in text.splitlines():
+                            if not line.strip():
+                                if cur:
+                                    # only include Wi-Fi/AirPort entries
+                                    if cur.get("Hardware Port", "").lower().startswith("wi"):
+                                        adapters.append(cur)
+                                    cur = {}
+                                continue
+                            if ":" in line:
+                                k, v = line.split(":", 1)
+                                cur[k.strip()] = v.strip()
+                        if cur and cur.get("Hardware Port", "").lower().startswith("wi"):
+                            adapters.append(cur)
+
+                        self.log(f"Found {len(adapters)} adapter(s) via networksetup")
+                        if adapters:
+                            self.log(f"Adapters: {[a.get('Device') or a for a in adapters]}")
+                        return adapters
+                except Exception as e:
+                    self.log(f"✗ macOS networksetup parse failed: {e}")
+
+            # Linux: try nmcli, then check wireless sysfs
+            if system == "linux":
+                try:
+                    import subprocess
+                    if shutil.which("nmcli"):
+                        self.log("Using nmcli to enumerate devices")
+                        out = subprocess.run(
+                            ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device"],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        text = out.stdout or out.stderr or ""
+                        self.log("nmcli output:\n" + text.strip())
+                        for line in text.splitlines():
+                            parts = line.split(":")
+                            if len(parts) >= 3 and parts[1] == "wifi":
+                                adapters.append({"name": parts[0], "type": "wifi", "state": parts[2], "connection": parts[3] if len(parts) > 3 else ""})
+                        self.log(f"Found {len(adapters)} adapter(s) via nmcli")
+                        if adapters:
+                            self.log(f"Adapters: {[a.get('name') for a in adapters]}")
+                        if adapters:
+                            return adapters
+                except Exception as e:
+                    self.log(f"✗ nmcli parse failed: {e}")
+
+                # Fallback: check /sys/class/net for wireless directories
+                try:
+                    net_path = Path("/sys/class/net")
+                    if net_path.exists():
+                        for iface in net_path.iterdir():
+                            if (iface / "wireless").exists() or (Path("/proc/net/wireless").exists() and iface.name in open("/proc/net/wireless").read()):
+                                adapters.append({"name": iface.name, "type": "wifi"})
+                        if adapters:
+                            self.log(f"Found {len(adapters)} adapter(s) via sysfs/proc")
+                            self.log(f"Adapters: {[a.get('name') for a in adapters]}")
+                            return adapters
+                except Exception as e:
+                    self.log(f"✗ linux sysfs check failed: {e}")
+
+            # Generic fallback: list network interfaces
+            try:
+                # Import psutil dynamically to avoid static analysis errors
+                self.log("Falling back to psutil / generic interface listing")
+                psutil = importlib.import_module("psutil")
+                if hasattr(psutil, "net_if_addrs"):
+                    for name in psutil.net_if_addrs().keys():
+                        adapters.append({"name": name})
+                    self.log(f"Found {len(adapters)} adapter(s) via psutil")
+                    self.log(f"Adapters: {[a.get('name') for a in adapters]}")
+                    return adapters
+            except Exception as e:
+                # psutil not available or failed; return what we have
+                self.log(f"⚠ psutil fallback failed: {e}")
+
+        except Exception as e:
+            self.log(f"✗ list_wifi_adapters failed: {e}")
+
+        # Final summary
+        self.log(f"Adapter discovery complete. Total adapters found: {len(adapters)}")
+        if adapters:
+            try:
+                self.log(f"Adapter names: {[a.get('name') for a in adapters]}")
+            except Exception:
+                pass
+
+        return adapters
+
+    def scan_wifi_networks(self, interface: str = None, timeout: int = 10):
+        """Scan for WiFi networks using the specified interface where possible.
+
+        Returns a list of SSID dicts (ssid, bssid, signal, security) when available.
+        """
+        results = []
+        self.log(f"Starting WiFi network scan on interface: {interface or 'any'}")
+        try:
+            system = platform.system().lower()
+            import subprocess
+
+            # Windows: netsh wlan show networks
+            if system == "windows" and shutil.which("netsh"):
+                self.log("Using netsh to scan for networks")
+                cmd = ["netsh", "wlan", "show", "networks", "mode=bssid"]
+                if interface:
+                    cmd = ["netsh", "wlan", "show", "networks", f"interface={interface}", "mode=bssid"]
+                out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+                text = out.stdout or out.stderr or ""
+                self.log("netsh scan output:\n" + (text.strip()[:4000]))
+                # crude parse: lines starting with SSID
+                cur = {}
+                for line in text.splitlines():
+                    line = line.strip()
+                    if line.lower().startswith("ssid ") and ":" in line:
+                        if cur:
+                            results.append(cur)
+                            cur = {}
+                        _, val = line.split(":", 1)
+                        cur["ssid"] = val.strip()
+                    elif line.lower().startswith("bssid"):
+                        _, val = line.split(":", 1)
+                        cur.setdefault("bssid", val.strip())
+                    elif line.lower().startswith("signal"):
+                        _, val = line.split(":", 1)
+                        cur.setdefault("signal", val.strip())
+                if cur:
+                    results.append(cur)
+                self.log(f"Found {len(results)} network(s) via netsh")
+                return results
+
+            # macOS: airport -s
+            if system == "darwin" and shutil.which("/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"):
+                airport = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
+                self.log("Using airport utility to scan for networks")
+                out = subprocess.run([airport, "-s"], capture_output=True, text=True, timeout=timeout)
+                text = out.stdout or out.stderr or ""
+                self.log("airport scan:\n" + text.strip())
+                for line in text.splitlines()[1:]:
+                    parts = [p for p in line.split(" ") if p]
+                    if parts:
+                        results.append({"ssid": parts[0], "signal": parts[-2] if len(parts) > 1 else ""})
+                self.log(f"Found {len(results)} network(s) via airport")
+                return results
+
+            # Linux: nmcli dev wifi list
+            if system == "linux" and shutil.which("nmcli"):
+                cmd = ["nmcli", "-f", "SSID,BSSID,SIGNAL,SECURITY", "dev", "wifi", "list"]
+                if interface:
+                    cmd.extend(["ifname", interface])
+                self.log("Using nmcli to scan for networks")
+                out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+                text = out.stdout or out.stderr or ""
+                self.log("nmcli scan:\n" + (text.strip()[:4000]))
+                for line in text.splitlines()[1:]:
+                    parts = [p.strip() for p in line.split() if p.strip()]
+                    if parts:
+                        results.append({"ssid": parts[0]})
+                self.log(f"Found {len(results)} network(s) via nmcli")
+                return results
+
+            # Try iwlist as fallback
+            if system == "linux" and shutil.which("iwlist") and interface:
+                self.log(f"Using iwlist to scan on interface {interface}")
+                out = subprocess.run(["iwlist", interface, "scan"], capture_output=True, text=True, timeout=timeout)
+                text = out.stdout or out.stderr or ""
+                self.log("iwlist scan output trimmed:\n" + (text.strip()[:4000]))
+                # crude parse for ESSID
+                for line in text.splitlines():
+                    if "ESSID:" in line:
+                        ssid = line.split("ESSID:", 1)[1].strip().strip('"')
+                        results.append({"ssid": ssid})
+                self.log(f"Found {len(results)} network(s) via iwlist")
+                return results
+
+        except Exception as e:
+            self.log(f"✗ scan_wifi_networks failed: {e}")
+
+        self.log(f"Scan complete. Total networks found: {len(results)}")
+        if results:
+            try:
+                self.log(f"Example networks: {[r.get('ssid') for r in results[:8]]}")
+            except Exception:
+                pass
+
+        return results
 
     def check_ports(self):
         """Check if common ports are accessible"""

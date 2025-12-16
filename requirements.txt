@@ -6,5 +6,8 @@ flask>=2.0.0
 # Optional (heavy) dependency for YOLO integration - enable only if needed
 # ultralytics>=8.0.0
 
+# Helper for advanced network inspection (optional but recommended)
+psutil>=5.9.0
+
 # NOTE: FFmpeg is required on the system PATH for reliable RTSP playback
 # (Not a Python package). Verify with `ffmpeg -version`.

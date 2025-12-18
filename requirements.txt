@@ -11,3 +11,7 @@ psutil>=5.9.0
 
 # NOTE: FFmpeg is required on the system PATH for reliable RTSP playback
 # (Not a Python package). Verify with `ffmpeg -version`.
+
+# Optional: packet capture helper. Install to enable `teky.tools.packet_sniffer`
+# On Windows, also install Npcap (https://nmap.org/npcap/) and run as admin.
+scapy>=2.4.5

@@ -237,8 +237,8 @@ class TEKYDroneController:
 			from .video_stream import OpenCVVideoStream
 
 			# prefer TCP transport for RTSP streams to avoid Unsupported Transport errors
-			self.video_stream = OpenCVVideoStream(self.RTSP_URL, buffer_size=1, prefer_tcp=True)
-			if not self.video_stream.start():
+			self.video_stream = OpenCVVideoStream(self.RTSP_URL, buffer_size=1, prefer_tcp=True, max_retries=5, retry_delay=1.5)
+			if not self.video_stream.start(timeout=6.0):
 				print("Failed to open video stream with OpenCV")
 				print("Please ensure:")
 				print("1. You're connected to the drone's WiFi network")

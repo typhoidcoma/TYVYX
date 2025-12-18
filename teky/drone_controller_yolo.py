@@ -237,8 +237,8 @@ class TEKYDroneYOLO:
 
 			from .video_stream import OpenCVVideoStream
 
-			self.video_stream = OpenCVVideoStream(self.RTSP_URL, buffer_size=1)
-			if not self.video_stream.start():
+			self.video_stream = OpenCVVideoStream(self.RTSP_URL, buffer_size=1, prefer_tcp=True, max_retries=5, retry_delay=1.5)
+			if not self.video_stream.start(timeout=6.0):
 				print("Failed to open video stream")
 				return False
 

@@ -41,6 +41,12 @@ _drone_controller = None
 # Config persistence
 _config_path = Path("teky_config.json")
 
+# Sniffer job tracking
+_sniff_jobs = {}
+_sniff_job_counter = 0
+_sniff_jobs_path = Path("sniffs")
+_sniff_jobs_path.mkdir(exist_ok=True)
+
 
 def _load_config():
     global _video_source, _last_successful_ports
@@ -122,10 +128,10 @@ def get_video_stream() -> OpenCVVideoStream:
             source = _video_source or f"rtsp://{controller.DRONE_IP}:{controller.RTSP_PORT}/webcam"
             # prefer TCP for RTSP streams to avoid Unsupported Transport errors
             if isinstance(source, str) and source.lower().startswith('rtsp://'):
-                _video_stream = OpenCVVideoStream(source, prefer_tcp=True)
+                _video_stream = OpenCVVideoStream(source, prefer_tcp=True, max_retries=5, retry_delay=1.5, buffer_size=1)
             else:
                 _video_stream = OpenCVVideoStream(source)
-            started = _video_stream.start(timeout=3.0)
+            started = _video_stream.start(timeout=6.0)
             app.logger.info(f"Video stream started: {started} (source={source})")
         return _video_stream
 
@@ -170,10 +176,10 @@ def set_video_source(feed_type: str) -> Tuple[bool, str]:
             _video_source = src
             # prefer TCP for RTSP streams to avoid Unsupported Transport errors
             if isinstance(src, str) and src.lower().startswith('rtsp://'):
-                _video_stream = OpenCVVideoStream(src, prefer_tcp=True)
+                _video_stream = OpenCVVideoStream(src, prefer_tcp=True, max_retries=5, retry_delay=1.5, buffer_size=1)
             else:
                 _video_stream = OpenCVVideoStream(src)
-            started = _video_stream.start(timeout=3.0)
+            started = _video_stream.start(timeout=6.0)
             app.logger.info(f"set_video_source -> started={started} src={src}")
             if started:
                 try:
@@ -421,9 +427,17 @@ def video_status():
     """Return JSON status of the current video stream."""
     try:
         with _video_lock:
-            running = bool(_video_stream and getattr(_video_stream, 'is_opened', lambda: False)())
+            vs = _video_stream
+            running = bool(vs and getattr(vs, 'is_opened', lambda: False)())
             source = globals().get('_video_source', None)
-        return jsonify({'running': running, 'source': str(source) if source is not None else None})
+            using_ffmpeg = bool(vs and getattr(vs, '_using_ffmpeg', False))
+            ff_stderr = None
+            try:
+                if vs and hasattr(vs, '_ffmpeg_stderr'):
+                    ff_stderr = getattr(vs, '_ffmpeg_stderr')
+            except Exception:
+                ff_stderr = None
+        return jsonify({'running': running, 'source': str(source) if source is not None else None, 'using_ffmpeg': using_ffmpeg, 'ffmpeg_stderr': ff_stderr})
     except Exception as e:
         app.logger.error(f"video_status error: {e}")
         return jsonify({'running': False, 'source': None, 'error': str(e)})
@@ -506,6 +520,95 @@ def drone_config():
     except Exception as e:
         app.logger.error(f"drone_config error: {e}")
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/sniff/run', methods=['POST'])
+def sniff_run():
+    """Start a packet sniff capture in background. JSON: {duration, dst, src, port, iface}
+    Returns a job id which can be polled via /sniff/status and downloaded when complete.
+    """
+    global _sniff_job_counter
+    data = request.json or {}
+    duration = int(data.get('duration', 20))
+    dst = data.get('dst')
+    src = data.get('src')
+    port = data.get('port')
+    iface = data.get('iface')
+
+    out_name = f"sniff_{int(time.time())}.pcap"
+    out_path = _sniff_jobs_path / out_name
+
+    # prepare arg list
+    args = ['python', '-m', 'teky.tools.packet_sniffer', '--duration', str(duration), '--out', str(out_path)]
+    if dst:
+        args += ['--dst', str(dst)]
+    if src:
+        args += ['--src', str(src)]
+    if port:
+        args += ['--port', str(port)]
+    if iface:
+        args += ['--iface', str(iface)]
+
+    job_id = None
+    try:
+        _sniff_job_counter += 1
+        job_id = str(_sniff_job_counter)
+        _sniff_jobs[job_id] = {'status': 'running', 'out': str(out_path), 'started_at': time.time()}
+
+        def _run_capture(job, args, outp):
+            try:
+                proc = subprocess.run(args, capture_output=True, text=True, check=False)
+                if proc.returncode != 0:
+                    _sniff_jobs[job]['status'] = 'error'
+                    _sniff_jobs[job]['error'] = f'capture process failed: returncode={proc.returncode} stderr={proc.stderr.strip()}'
+                    _sniff_jobs[job]['stderr'] = (proc.stderr or '').strip()[:2000]
+                    _sniff_jobs[job]['stdout'] = (proc.stdout or '').strip()[:2000]
+                    return
+                # ensure output file was created
+                if not Path(outp).exists():
+                    _sniff_jobs[job]['status'] = 'error'
+                    _sniff_jobs[job]['error'] = 'capture completed but output file missing'
+                    _sniff_jobs[job]['stderr'] = (proc.stderr or '').strip()[:2000]
+                    _sniff_jobs[job]['stdout'] = (proc.stdout or '').strip()[:2000]
+                    return
+                _sniff_jobs[job]['status'] = 'done'
+                _sniff_jobs[job]['stderr'] = (proc.stderr or '').strip()[:2000]
+                _sniff_jobs[job]['stdout'] = (proc.stdout or '').strip()[:2000]
+            except Exception as e:
+                _sniff_jobs[job]['status'] = 'error'
+                _sniff_jobs[job]['error'] = str(e)
+
+        t = threading.Thread(target=_run_capture, args=(job_id, args, str(out_path)), daemon=True)
+        t.start()
+        return jsonify({'ok': True, 'job': job_id})
+    except Exception as e:
+        app.logger.error(f"sniff_run error: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/sniff/status')
+def sniff_status():
+    """Return status for all sniff jobs."""
+    try:
+        data = {jid: dict(info) for jid, info in _sniff_jobs.items()}
+        return jsonify({'ok': True, 'jobs': data})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/sniff/download')
+def sniff_download():
+    """Download completed pcap. Query param `job` required."""
+    job = request.args.get('job')
+    if not job or job not in _sniff_jobs:
+        return jsonify({'ok': False, 'error': 'job not found'}), 404
+    info = _sniff_jobs[job]
+    if info.get('status') != 'done':
+        return jsonify({'ok': False, 'error': 'job not complete'}), 409
+    path = Path(info['out'])
+    if not path.exists():
+        return jsonify({'ok': False, 'error': 'file missing'}), 404
+    return app.send_static_file(str(path)) if False else app.send_file(str(path), as_attachment=True)
 
 
 @app.route('/drone/connect_controller', methods=['POST'])
@@ -593,7 +696,7 @@ def drone_command():
 
         return jsonify({'ok': False, 'error': f'Unknown action {action}'}), 400
     except Exception as e:
-        diagnostics.log(f"drone_command error: {e}")
+        app.logger.error(f"drone_command error: {e}")
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 

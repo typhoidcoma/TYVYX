@@ -24,6 +24,7 @@
         <div id="video_overlay" style="display:none;position:absolute;left:0;top:0;right:0;bottom:0;align-items:center;justify-content:center;display:flex;background:rgba(0,0,0,0.45);color:#fff;font-weight:600;font-size:1.1rem;">Switching camera…</div>
       </div>
       <div id="video_status" style="margin-top:8px;font-weight:600">Status: unknown</div>
+      <div id="video_ffmpeg" style="margin-top:6px;font-family:monospace;white-space:pre-wrap;display:none;color:#333;background:#eee;padding:6px;border-radius:4px;max-height:180px;overflow:auto"></div>
     </div>
 
     <div class="right">
@@ -90,27 +91,7 @@
       const feed_type = document.getElementById('feed_type').value;
       appendLog('Reconnecting video feed (' + feed_type + ')...');
       const btn = document.getElementById('reconnect');
-      <script>
-        // Minimal page JS: only poll video status
-        async function pollVideoStatus(){
-          try{
-            const res = await fetch('/video_status');
-            const js = await res.json();
-            const s = document.getElementById('video_status');
-            if(js.running){
-              s.textContent = `Status: running (source: ${js.source || 'unknown'})`;
-              document.getElementById('video').style.border = '2px solid #2ecc71';
-            } else {
-              s.textContent = `Status: stopped (source: ${js.source || 'none'})`;
-              document.getElementById('video').style.border = '2px solid #e74c3c';
-            }
-          }catch(err){
-            const s = document.getElementById('video_status');
-            s.textContent = 'Status: error';
-          }
-        }
-        pollVideoStatus();
-        setInterval(pollVideoStatus, 3000);
-      </script>
-      <script src="{{ url_for('static', filename='controls.js') }}"></script>
-        const ports = js.ports || [];
+    });
+
+  </script>
+  <script src="{{ url_for('static', filename='controls.js') }}"></script>

@@ -44,6 +44,7 @@
         }
       }catch(e){ /* ignore */ }
     }
+    // Note: FFmpeg-specific status polling removed after video_stream simplification
 
     bind('btn_connect_controller', async ()=>{
       appendLog('Connecting controller...');
@@ -97,6 +98,84 @@
     if(cam2) cam2.addEventListener('click', ()=> switchCameraWithSpinner(2));
     bind('btn_start_video', ()=> sendDroneAction('start_video'));
     bind('btn_stop_video', ()=> sendDroneAction('stop_video'));
+    // Sniffer controls
+    bind('btn_start_sniff', async ()=>{
+      const dst = document.getElementById('sniff_dst').value || undefined;
+      const port = document.getElementById('sniff_port').value || undefined;
+      const dur = parseInt(document.getElementById('sniff_dur').value || '20', 10);
+      appendLog('Starting capture...');
+      try{
+        const res = await fetch('/sniff/run', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({dst:dst, port:port, duration:dur})});
+        const js = await res.json();
+        appendLog('Sniff start: ' + JSON.stringify(js));
+        refreshSniffs();
+      }catch(e){ appendLog('Sniff start failed: ' + e); }
+    });
+
+    bind('btn_refresh_sniffs', ()=> refreshSniffs());
+
+    async function refreshSniffs(){
+      try{
+        const r = await fetch('/sniff/status');
+        const js = await r.json();
+        const list = document.getElementById('sniff_list');
+        if(!list) return;
+        list.innerHTML = '';
+        if(js && js.jobs){
+          for(const [jid, info] of Object.entries(js.jobs)){
+            const div = document.createElement('div');
+            const status = info.status || 'unknown';
+            const hdr = document.createElement('div');
+            hdr.style.fontWeight = '700';
+            hdr.textContent = `${jid}: ${status} -> ${info.out || ''}`;
+
+            // download link
+            if(status === 'done'){
+              const a = document.createElement('a'); a.href = `/sniff/download?job=${jid}`; a.textContent = ' download'; a.style.marginLeft='8px';
+              hdr.appendChild(a);
+            }
+
+            div.appendChild(hdr);
+
+            // show stdout/stderr if available
+            const hasStdout = info.stdout && info.stdout.length > 0;
+            const hasStderr = info.stderr && info.stderr.length > 0;
+            if(hasStdout || hasStderr){
+              const btn = document.createElement('button');
+              btn.textContent = 'show logs';
+              btn.style.marginLeft = '8px';
+              btn.addEventListener('click', ()=>{
+                const pre = div.querySelector('pre');
+                if(pre){
+                  if(pre.style.display === 'none'){
+                    pre.style.display = 'block'; btn.textContent = 'hide logs';
+                  } else { pre.style.display = 'none'; btn.textContent = 'show logs'; }
+                }
+              });
+              hdr.appendChild(btn);
+
+              const pre = document.createElement('pre');
+              pre.style.display = 'none';
+              pre.style.background = '#111';
+              pre.style.color = '#eee';
+              pre.style.padding = '8px';
+              pre.style.whiteSpace = 'pre-wrap';
+              pre.style.maxHeight = '200px';
+              pre.style.overflow = 'auto';
+              let outText = '';
+              if(hasStdout) outText += `STDOUT:\n${info.stdout}\n\n`;
+              if(hasStderr) outText += `STDERR:\n${info.stderr}\n`;
+              pre.textContent = outText;
+              div.appendChild(pre);
+            }
+
+            list.appendChild(div);
+          }
+        }
+      }catch(e){ appendLog('Refresh sniffs failed: ' + e); }
+    }
+    // initial refresh
+    refreshSniffs();
   }
 
 })();

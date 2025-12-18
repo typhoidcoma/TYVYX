@@ -308,8 +308,8 @@ class TEKYDroneControllerAdvanced:
 
 			from .video_stream import OpenCVVideoStream
 
-			self.video_stream = OpenCVVideoStream(self.RTSP_URL, buffer_size=1)
-			if not self.video_stream.start():
+			self.video_stream = OpenCVVideoStream(self.RTSP_URL, buffer_size=1, prefer_tcp=True, max_retries=5, retry_delay=1.5)
+			if not self.video_stream.start(timeout=6.0):
 				print("Failed to open video stream")
 				return False
 
@@ -330,6 +330,43 @@ class TEKYDroneControllerAdvanced:
 			return ret, frame
 
 		return False, None
+
+	def switch_camera(self, camera_num: int):
+		"""Switch between cameras (if drone has multiple).
+		Args:
+			camera_num: 1 or 2
+		"""
+		try:
+			if camera_num == 1:
+				cmd = self.CMD_CAMERA_1
+			elif camera_num == 2:
+				cmd = self.CMD_CAMERA_2
+			else:
+				return False
+			sent = self.send_command(cmd, verbose=True)
+			# If a threaded video stream is active, restart it so the new camera feed is picked up
+			if getattr(self, 'video_stream', None):
+				try:
+					self.video_stream.stop()
+					time.sleep(0.35)
+					# attempt to start stream again
+					started = self.start_video_stream()
+					return bool(started)
+				except Exception:
+					return bool(sent)
+			return bool(sent)
+		except Exception:
+			return False
+
+	def switch_screen_mode(self, mode: int):
+		"""Switch screen mode.
+		Args:
+			mode: 1 or 2
+		"""
+		if mode == 1:
+			self.send_command(self.CMD_SCREEN_MODE_1, verbose=True)
+		elif mode == 2:
+			self.send_command(self.CMD_SCREEN_MODE_2, verbose=True)
 
 
 def main():

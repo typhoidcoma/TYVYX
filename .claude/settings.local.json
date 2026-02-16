@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)",
+      "Read(//i/Projects/turbodrone/**)",
+      "Bash(npm create vite:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(scripts/start_phase2.sh:*)",
+      "Bash(chmod:*)"
+    ]
+  }
+}

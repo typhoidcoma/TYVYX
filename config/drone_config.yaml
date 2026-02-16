@@ -1,0 +1,214 @@
+# TEKY Drone Configuration
+#
+# This file contains all calibration data and configuration parameters
+# for the autonomous drone system.
+
+drone:
+  # Network configuration
+  ip: "192.168.1.1"
+  udp_port: 7099
+  rtsp_port: 7070
+  rtsp_url: "rtsp://192.168.1.1:7070/webcam"
+
+  # Device type (auto-detected, but can be overridden)
+  # GL=2, TC=10
+  device_type: null
+
+# Flight control calibration
+# These values are populated through testing with flight_control_test.py
+flight_controls:
+  # Control value range
+  min_value: 0
+  max_value: 255
+  neutral_value: 128
+
+  # Calibration data - maps desired velocity (m/s) to control values (0-255)
+  # IMPORTANT: These are PLACEHOLDER values - must be calibrated!
+  throttle:
+    hover_value: 150  # Control value that maintains hover
+    min_climb_value: 140  # Minimum value for gentle climb
+    max_climb_value: 200  # Maximum safe climb value
+    min_descend_value: 110  # Value for gentle descent
+    # Velocity mapping: velocity (m/s) -> control value
+    velocity_map:
+      -1.0: 110  # Descend at 1 m/s
+      -0.5: 120  # Descend at 0.5 m/s
+      0.0: 150   # Hover
+      0.5: 160   # Climb at 0.5 m/s
+      1.0: 170   # Climb at 1 m/s
+
+  pitch:
+    # Forward/backward movement
+    neutral_value: 128
+    # Velocity mapping: velocity (m/s) -> control value
+    velocity_map:
+      -1.0: 90   # Backward at 1 m/s
+      -0.5: 110  # Backward at 0.5 m/s
+      0.0: 128   # No movement
+      0.5: 145   # Forward at 0.5 m/s
+      1.0: 165   # Forward at 1 m/s
+
+  roll:
+    # Left/right movement
+    neutral_value: 128
+    # Velocity mapping: velocity (m/s) -> control value
+    velocity_map:
+      -1.0: 90   # Left at 1 m/s
+      -0.5: 110  # Left at 0.5 m/s
+      0.0: 128   # No movement
+      0.5: 145   # Right at 0.5 m/s
+      1.0: 165   # Right at 1 m/s
+
+  yaw:
+    # Rotation
+    neutral_value: 128
+    # Velocity mapping: angular velocity (deg/s) -> control value
+    velocity_map:
+      -90.0: 90   # Counter-clockwise at 90 deg/s
+      -45.0: 110  # Counter-clockwise at 45 deg/s
+      0.0: 128    # No rotation
+      45.0: 145   # Clockwise at 45 deg/s
+      90.0: 165   # Clockwise at 90 deg/s
+
+# PID controller gains
+# Tuned through testing for stable position hold
+navigation:
+  # Position controller PID gains
+  pid_position_x:
+    kp: 1.0
+    ki: 0.1
+    kd: 0.05
+    integral_limit: 10.0
+    output_min: -2.0  # Max velocity m/s
+    output_max: 2.0
+
+  pid_position_y:
+    kp: 1.0
+    ki: 0.1
+    kd: 0.05
+    integral_limit: 10.0
+    output_min: -2.0
+    output_max: 2.0
+
+  pid_position_z:
+    kp: 1.2
+    ki: 0.1
+    kd: 0.05
+    integral_limit: 10.0
+    output_min: -1.0  # Vertical speed limit
+    output_max: 1.0
+
+  pid_yaw:
+    kp: 0.8
+    ki: 0.0
+    kd: 0.1
+    integral_limit: 50.0
+    output_min: -90.0  # Max rotation deg/s
+    output_max: 90.0
+
+  # Speed limits
+  max_horizontal_speed: 2.0  # m/s
+  max_vertical_speed: 1.0    # m/s
+  max_rotation_speed: 90.0   # deg/s
+
+  # Position tolerance
+  waypoint_tolerance: 0.3    # meters
+  yaw_tolerance: 10.0        # degrees
+
+  # Timeouts
+  waypoint_timeout: 30.0     # seconds to reach waypoint
+
+# Safety configuration
+safety:
+  # Geofence boundaries (meters from origin)
+  geofence:
+    enabled: true
+    min_x: -10.0
+    max_x: 10.0
+    min_y: -8.0
+    max_y: 8.0
+    min_z: 0.3   # Minimum altitude (crash protection)
+    max_z: 2.5   # Maximum altitude (ceiling)
+
+  # Battery monitoring (if available)
+  min_battery_percent: 20
+  low_battery_action: "return_home"  # or "land_immediately"
+
+  # Emergency behaviors
+  lost_tracking_action: "hover"  # or "land" or "return_home"
+  wifi_lost_action: "land"
+  emergency_stop_descent_rate: 0.3  # m/s gentle descent
+
+# Camera calibration for SLAM
+# Run camera calibration utility to populate these values
+camera:
+  # Intrinsic parameters
+  fx: 500.0  # Focal length X (pixels)
+  fy: 500.0  # Focal length Y (pixels)
+  cx: 320.0  # Principal point X (pixels)
+  cy: 240.0  # Principal point Y (pixels)
+
+  # Distortion coefficients
+  k1: 0.0    # Radial distortion
+  k2: 0.0
+  p1: 0.0    # Tangential distortion
+  p2: 0.0
+  k3: 0.0
+
+  # Resolution
+  width: 640
+  height: 480
+
+  # Frame rate
+  fps: 30
+
+# SLAM configuration
+slam:
+  type: "optical_flow"  # or "openvslam" when upgraded
+
+  # Optical flow parameters
+  optical_flow:
+    method: "farneback"  # or "lucas_kanade"
+    quality_level: 0.01
+    min_distance: 10
+    block_size: 3
+
+  # Visual SLAM parameters (for future upgrade)
+  visual_slam:
+    vocab_file: "config/orb_vocab.txt"
+    num_features: 500
+    feature_detector: "ORB"
+    map_save_interval: 30  # seconds
+    loop_closure_enabled: true
+
+# Map configuration
+map:
+  # Map file path
+  file: "maps/condo_floor_plan.json"
+
+  # Coordinate system
+  origin_x: 0.0
+  origin_y: 0.0
+  origin_z: 0.0
+
+  # Resolution
+  resolution: 0.05  # meters per grid cell
+
+# API configuration
+api:
+  host: "0.0.0.0"
+  port: 8000
+  cors_origins:
+    - "http://localhost:5173"  # Vite dev server
+    - "http://localhost:3000"  # Alternative dev port
+
+  # WebSocket update rates
+  position_update_rate: 10  # Hz
+  telemetry_update_rate: 1  # Hz
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  log_dir: "logs"
+  log_flight_data: true
+  log_video_frames: false  # Set true for debugging SLAM

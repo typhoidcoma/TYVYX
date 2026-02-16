@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -6,8 +7,12 @@ __pycache__/
 env/
 venv/
 .venv/
+ENV/
+venv.bak/
 pip-log.txt
 pip-delete-this-directory.txt
+
+# Testing
 .tox/
 .coverage
 .coverage.*
@@ -15,11 +20,60 @@ pip-delete-this-directory.txt
 nosetests.xml
 coverage.xml
 *.cover
-*.log
-.git
-.mypy_cache
-.pytest_cache
 .hypothesis
+.pytest_cache
+
+# Python cache
+.mypy_cache
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/*.log
+logs/**/*.log
+
+# Node
 node_modules/
-.DS_Store
+
+# Environment
 .env
+
+# Test artifacts
+*.pcap
+*.tmp
+test.pcap
+
+# Packet captures
+sniffs/*.pcap
+sniffs/**/*.pcap
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vs/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Frontend build
+frontend/dist/
+frontend/build/
+
+# Temporary files
+nul
+NUL
+
+# Git
+.git

@@ -302,9 +302,9 @@ Phase 3 will add **position estimation** using optical flow:
 
 ## 📚 Related Documentation
 
-- **Phase 1**: [PHASE1_QUICKSTART.md](PHASE1_QUICKSTART.md) - Flight control calibration
-- **Turbodrone Integration**: [TURBODRONE_INTEGRATION.md](TURBODRONE_INTEGRATION.md) - Architecture patterns
-- **Main Plan**: `~/.claude/plans/fluttering-soaring-horizon.md` - Full implementation plan
+- **Phase 1**: [Flight Control Calibration](phase1-calibration.md) - Flight control calibration
+- **Turbodrone Integration**: [Turbodrone Architecture](turbodrone-architecture.md) - Architecture patterns
+- **Getting Started**: [Getting Started Guide](../getting-started/README.md) - Setup and installation
 
 ---
 

@@ -1,136 +1,290 @@
 # TEKY WiFi Drone Controller
 
-This project provides Python applications to receive the WiFi video feed and control a TEKY WiFi drone, based on reverse engineering the Android app.
+> Reverse-engineered Python control system with autonomous navigation capabilities
+
+A comprehensive drone control system for TEKY WiFi drones, featuring manual control, computer vision integration, and an autonomous navigation framework.
+
+## Overview
+
+This project provides complete control over TEKY WiFi drones through reverse-engineered UDP protocols. Built on reverse engineering of the official Android app, it includes basic video streaming, manual controls, and an extensible autonomous navigation system.
+
+**Project Status**:
+- ✅ Phase 1: Flight control calibration tools
+- ✅ Phase 2: React + FastAPI modern web interface
+- 🚧 Phase 3-7: Autonomous navigation (in progress)
 
 ## Features
 
-### ✅ Implemented
-- **UDP Communication**: Heartbeat and command transmission on port 7099
-- **RTSP Video Stream**: Live video feed from drone at `rtsp://192.168.1.1:7070/webcam`
-- **Camera Switching**: Switch between multiple cameras (if available)
-- **Screen Mode Toggle**: Switch between screen display modes
-- **Screenshot Capture**: Save frames from the video feed
-- **Device Type Detection**: Auto-detect drone type (GL/TC)
+### Core Functionality
 
-### ⚠️ Experimental
-- **Flight Controls**: Throttle, yaw, pitch, and roll commands (may not work without native library reverse engineering)
+- ✅ **UDP Command Protocol** - Reverse-engineered control commands
+- ✅ **RTSP Video Streaming** - Real-time video with OpenCV
+- ✅ **Camera Switching** - Toggle between multiple cameras
+- ✅ **Device Auto-Detection** - Identify GL/TC drone types
+- ✅ **Network Diagnostics** - Connection testing and troubleshooting
 
-### 📋 Documentation
-- **REVERSE_ENGINEERING_NOTES.md**: Detailed technical documentation of the drone protocol
+### Advanced Capabilities
 
-## Requirements
+- 🚀 **Modern Web Interface** - React + TypeScript UI (Phase 2)
+- 🚀 **FastAPI Backend** - Async REST API with WebSocket telemetry
+- 🎯 **Flight Control Calibration** - Interactive testing tools (Phase 1)
+- 🤖 **Autonomous Navigation Framework** - PID controllers and path planning
+- 👁️ **YOLO11 Integration** - Real-time object detection
+- 📊 **Real-time Telemetry** - WebSocket-based status streaming
 
-- Python 3.7+
-- OpenCV with FFmpeg support
-- WiFi connection to drone network
+### Experimental
 
-## Installation
+- ⚠️ **Flight Controls** - Throttle, pitch, roll, yaw (requires calibration)
+- ⚠️ **Position Estimation** - Optical flow-based dead reckoning (Phase 3)
+- ⚠️ **SLAM Integration** - Visual SLAM for mapping (Phase 4+)
 
-1. **Install Python dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+## Quick Start
 
-2. **Ensure FFmpeg is installed** (required for RTSP stream):
-   - **Windows**: Download from https://ffmpeg.org/ and add to PATH
-   - **Linux**: `sudo apt-get install ffmpeg`
-   - **macOS**: `brew install ffmpeg`
+### Prerequisites
 
-3. **Connect to the drone's WiFi network:**
-   - Look for WiFi network matching: `HD-720P-*`, `HD-FPV-*`, `HD720-*`, or `FHD-*`
-   - The drone IP is `192.168.1.1`
+- Python 3.8 or higher
+- FFmpeg (for video streaming)
+- TEKY WiFi drone (HD-720P-*, HD-FPV-*, HD720-*, FHD-* models)
 
-## Usage
-
-### Basic Controller (Recommended)
+### Installation
 
 ```bash
-python drone_controller.py
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Install FFmpeg
+# Windows: Download from https://ffmpeg.org/ and add to PATH
+# Linux: sudo apt-get install ffmpeg
+# macOS: brew install ffmpeg
 ```
 
-**Controls:**
-- `Q` - Quit application
-- `1` - Switch to camera 1
-- `2` - Switch to camera 2  
-- `M` - Toggle screen mode
-- `I` - Send initialize command
-- `S` - Take screenshot
-
-### Advanced Controller (Experimental)
-
-⚠️ **WARNING**: Flight controls are experimental and may not work!
+### Connect and Fly
 
 ```bash
-python drone_controller_advanced.py
+# 1. Connect to drone WiFi (HD-720P-*, HD-FPV-*, etc.)
+# 2. Verify connection
+ping 192.168.1.1
+
+# 3. Run basic controller
+python -m teky.drone_controller
+
+# Or run web interface
+python -m teky.app
+# Visit http://localhost:5000
 ```
 
-**Additional Flight Controls:**
-- `SPACE` - Start/Stop flight controller
-- `ESC` - Emergency reset (center all controls)
-- `W/S` - Pitch forward/backward
-- `A/D` - Roll left/right
-- `↑/↓` - Throttle up/down
-- `←/→` - Yaw left/right
+### Phase 2 Web Interface
 
-## Network Configuration
+```bash
+# Terminal 1: Start backend
+python -m autonomous.api.main
+# Backend at http://localhost:8000
 
-- **Drone IP**: `192.168.1.1`
-- **UDP Control Port**: `7099`
-- **RTSP Video Port**: `7070`
-- **Video Stream URL**: `rtsp://192.168.1.1:7070/webcam`
+# Terminal 2: Start frontend
+cd frontend
+npm install
+npm run dev
+# Frontend at http://localhost:5173
+```
 
-## Known Limitations
+## Project Structure
 
-1. **Flight Controls**: The actual flight control commands are implemented in native libraries (.so files) that are not visible in the decompiled Java code. The experimental flight commands may not work correctly.
+```
+TEKY/
+├── teky/              # Core drone control package
+│   ├── drone_controller.py          # Basic controller
+│   ├── drone_controller_advanced.py # With flight controls
+│   ├── drone_controller_yolo.py     # With object detection
+│   ├── video_stream.py              # Video utilities
+│   ├── network_diagnostics.py       # Connection testing
+│   └── app.py                       # Flask web interface
+│
+├── autonomous/        # Autonomous navigation system
+│   ├── api/          # FastAPI backend (Phase 2)
+│   ├── models/       # Control models and profiles
+│   ├── navigation/   # PID controllers, path planning
+│   ├── services/     # High-level drone service layer
+│   ├── perception/   # Computer vision, SLAM (Phase 3+)
+│   ├── localization/ # Position estimation (Phase 3+)
+│   ├── slam/         # SLAM engines (Phase 7)
+│   └── testing/      # Flight control calibration tools
+│
+├── frontend/          # React + TypeScript web UI (Phase 2)
+│   ├── src/
+│   │   ├── App.tsx
+│   │   └── services/api.ts
+│   └── package.json
+│
+├── config/            # Configuration files
+│   └── drone_config.yaml  # Main drone configuration
+│
+├── docs/              # Documentation
+│   ├── INDEX.md              # Documentation hub
+│   ├── API_REFERENCE.md      # API documentation
+│   ├── getting-started/      # Setup guides
+│   ├── guides/               # Phase implementation guides
+│   ├── technical/            # Technical references
+│   └── contributing/         # Contributor documentation
+│
+├── logs/              # Runtime logs
+├── maps/              # Map data (Phase 4+)
+└── tests/             # Unit tests
+```
 
-2. **Video Latency**: RTSP streams can have 1-3 seconds of latency depending on network conditions.
+## Documentation
 
-3. **Connection Stability**: Requires stable WiFi connection. UDP packets may be lost.
+📚 **[Full Documentation](docs/INDEX.md)**
 
-## Troubleshooting
+### Getting Started
+- **[Setup Guide](docs/getting-started/README.md)** - Installation and first flight
+- **[Quick Reference](docs/getting-started/QUICK_REFERENCE.md)** - Command cheat sheet
+- **[Troubleshooting](docs/getting-started/TROUBLESHOOTING.md)** - Common issues and solutions
 
-### Video Stream Won't Connect
-- Ensure you're connected to the drone's WiFi
-- Check that FFmpeg is installed and in PATH
-- Verify drone is powered on
-- Try restarting the drone
+### Implementation Guides
+- **[Phase 1: Calibration](docs/guides/phase1-calibration.md)** - Flight control calibration
+- **[Phase 2: Web App](docs/guides/phase2-webapp.md)** - React + FastAPI setup
+- **[YOLO Integration](docs/guides/yolo-integration.md)** - Object detection setup
+- **[Turbodrone Architecture](docs/guides/turbodrone-architecture.md)** - Architecture patterns
 
-### No Response from Drone
-- Check WiFi connection
-- Verify IP address (192.168.1.1)
-- Ensure no firewall is blocking UDP port 7099
-- Try power cycling the drone
+### Technical Reference
+- **[API Reference](docs/API_REFERENCE.md)** - Module and class documentation
+- **[Protocol Specification](docs/technical/protocol-specification.md)** - UDP protocol details
+- **[Reverse Engineering Notes](docs/technical/reverse-engineering.md)** - Protocol discovery
+- **[System Architecture](docs/technical/architecture.md)** - Component relationships
 
-### Flight Controls Don't Work
-- This is expected - flight controls are experimental
-- Would require reverse engineering the native .so libraries
-- Consider using network packet capture (Wireshark) during app usage to discover actual commands
+### Contributing
+- **[Contributing Guide](docs/contributing/CONTRIBUTING.md)** - How to contribute
+- **[Development Setup](docs/contributing/DEVELOPMENT.md)** - Dev environment setup
 
-## Development Notes
+## Roadmap
 
-The project includes:
-- `drone_controller.py` - Basic video and camera control
-- `drone_controller_advanced.py` - Experimental flight controls
-- `REVERSE_ENGINEERING_NOTES.md` - Technical documentation
-- `app.py` - Original web app (deprecated)
- - `docs/API_REFERENCE.md` - Concise API and usage reference for modules
+- [x] **Phase 1**: Flight control calibration ✅
+- [x] **Phase 2**: React + FastAPI web interface ✅
+- [ ] **Phase 3**: Optical flow position estimation 🚧
+- [ ] **Phase 4**: SLAM integration
+- [ ] **Phase 5**: Waypoint navigation
+- [ ] **Phase 6**: Autonomous mapping
+- [ ] **Phase 7**: Advanced SLAM (ORB-SLAM3, RTAB-Map)
+
+## Usage Examples
+
+### Basic Video Control
+
+```python
+from teky.drone_controller import DroneController
+
+controller = DroneController()
+controller.connect_to_drone()
+controller.start_video()
+# Video window appears with live feed
+```
+
+### Advanced Flight Control
+
+```python
+from teky.drone_controller_advanced import TEKYDroneControllerAdvanced
+
+controller = TEKYDroneControllerAdvanced()
+controller.connect_to_drone()
+controller.start_video()
+# Use keyboard for flight controls
+```
+
+### YOLO Object Detection
+
+```python
+from teky.drone_controller_yolo import TEKYDroneControllerYOLO
+
+controller = TEKYDroneControllerYOLO()
+controller.connect_to_drone()
+controller.start_video()
+# Video with object detection overlay
+```
+
+### FastAPI Backend
+
+```bash
+# Start server
+python -m autonomous.api.main
+
+# API available at http://localhost:8000
+# Docs at http://localhost:8000/docs
+```
+
+See [API Reference](docs/API_REFERENCE.md) for detailed usage.
 
 ## Contributing
 
-To improve flight control implementation:
-1. Use Wireshark to capture UDP packets during Android app flight
-2. Reverse engineer native .so libraries (libbl60xmjpeg.so, etc.)
-3. Test different command byte patterns safely
+Contributions welcome! We're especially interested in:
+
+- Protocol discoveries (new UDP commands)
+- Flight control calibration data
+- SLAM and computer vision improvements
+- Documentation enhancements
+- Bug fixes and testing
+
+**Getting Started**:
+1. Read [Contributing Guidelines](docs/contributing/CONTRIBUTING.md)
+2. Set up [Development Environment](docs/contributing/DEVELOPMENT.md)
+3. Check open issues or create a new one
+4. Submit a pull request
 
 ## Safety Warning
 
 ⚠️ **Always fly responsibly:**
-- Test in open, safe areas
-- Keep drone in visual line of sight  
-- Be prepared for unexpected behavior
-- Have emergency stop ready
-- Follow local regulations
+
+- Test in open, safe areas away from people and obstacles
+- Keep drone in visual line of sight at all times
+- Be prepared for unexpected behavior during development
+- Have emergency stop procedures ready
+- Follow all local drone regulations and laws
+- Never fly near airports, crowds, or restricted areas
+- Ensure fully charged battery before flight testing
+
+This is experimental software - use at your own risk!
+
+## Network Configuration
+
+| Service | Protocol | Address | Description |
+|---------|----------|---------|-------------|
+| **UDP Control** | UDP | 192.168.1.1:7099 | Command and control |
+| **RTSP Video** | RTSP/TCP | 192.168.1.1:7070 | Video streaming |
+| **HTTP Server** | HTTP | 192.168.1.1:80 | File access |
+| **FTP Server** | FTP | 192.168.1.1:21 | File transfer |
+
+See [Protocol Specification](docs/technical/protocol-specification.md) for details.
+
+## Technology Stack
+
+**Backend**: Python 3.8+, FastAPI, Flask, OpenCV, NumPy, Ultralytics YOLO11
+**Frontend**: React 18, TypeScript, Vite, Tailwind CSS
+**Communication**: UDP, RTSP, WebSocket, REST API
+**Development**: pytest, ruff, black, ESLint, Prettier
+
+## Supported Drone Models
+
+- HD-720P-* (tested)
+- HD-FPV-* (tested)
+- HD720-* (compatible)
+- FHD-* (compatible)
+
+*Based on reverse engineering of common TEKY WiFi drone firmware*
+
+## Acknowledgments
+
+- **Turbodrone Project** - Architecture patterns for autonomous navigation
+- **OpenCV Community** - Video processing libraries
+- **Ultralytics** - YOLO11 object detection
+- **FastAPI** - Modern async web framework
 
 ## License
 
-This project is for educational purposes. Use at your own risk.
+Educational purposes only. Use at your own risk.
+
+This project is not affiliated with or endorsed by TEKY or the original drone manufacturer. All trademarks are property of their respective owners.
+
+---
+
+**Ready to start?** Check out the [Getting Started Guide](docs/getting-started/README.md)!
+
+**Need help?** See [Troubleshooting](docs/getting-started/TROUBLESHOOTING.md) or open an issue.

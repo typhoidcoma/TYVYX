@@ -8,7 +8,13 @@
       "Bash(npm create vite:*)",
       "Bash(npx tailwindcss:*)",
       "Bash(scripts/start_phase2.sh:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(python -m autonomous.api.main:*)",
+      "Bash(npm run dev:*)",
+      "Bash(python:*)",
+      "Bash(curl:*)",
+      "Bash(git rm:*)",
+      "Bash(git add:*)"
     ]
   }
 }

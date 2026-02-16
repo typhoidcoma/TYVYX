@@ -217,7 +217,7 @@ TEKY_Working/
 ├── drone_controller_advanced.py     # With flight controls
 ├── network_diagnostics.py           # Testing tool
 ├── REVERSE_ENGINEERING_NOTES.md     # Technical docs
-├── GETTING_STARTED.md               # Full guide
+├── README.md               # Full guide
 ├── QUICK_REFERENCE.md               # This file
 ├── README.md                        # Project overview
 └── requirements.txt                 # Dependencies
@@ -240,4 +240,4 @@ TEKY_Working/
 
 ---
 
-**Need more help?** See [GETTING_STARTED.md](GETTING_STARTED.md) for detailed instructions.
+**Need more help?** See [README.md](README.md) for detailed instructions.

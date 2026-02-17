@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { droneApi, DroneStatus, createWebSocket } from './services/api'
+import { droneApi, type DroneStatus, createWebSocket } from './services/api'
 import { usePositionStore } from './stores/positionStore'
 import { PositionMap } from './components/PositionMap'
 import { PositionIndicator } from './components/PositionIndicator'

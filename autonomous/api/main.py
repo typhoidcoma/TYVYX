@@ -128,7 +128,7 @@ if __name__ == "__main__":
     logger.info("Frontend should connect to: http://localhost:8000")
 
     uvicorn.run(
-        "main:app",
+        "autonomous.api.main:app",
         host="0.0.0.0",
         port=8000,
         reload=True,  # Auto-reload on code changes

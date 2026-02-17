@@ -1,16 +1,15 @@
 """
-Video Streaming REST API Routes
+Video Streaming API Routes
 
-Endpoints for video feed access via FrameHub (UDP pipeline)
-and WebRTC signaling (go2rtc proxy).
+Endpoints for video feed access via FrameHub (UDP pipeline).
+Provides WebSocket binary (primary) and MJPEG (fallback) transports.
 """
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse, Response
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 import logging
 
 from autonomous.services.drone_service import drone_service
-from autonomous.services.go2rtc_service import go2rtc_service
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +50,37 @@ async def video_feed():
     )
 
 
+@router.websocket("/ws")
+async def video_ws(websocket: WebSocket):
+    """
+    WebSocket binary video stream.
+
+    Sends raw JPEG frames as binary messages — lower latency than MJPEG
+    multipart, instant stall detection via WebSocket close.
+    """
+    await websocket.accept()
+
+    if not drone_service.is_video_streaming():
+        await websocket.close(code=1013, reason="Video not streaming")
+        return
+
+    q = await drone_service.frame_hub.register()
+    try:
+        while True:
+            frame_bytes = await q.get()
+            if frame_bytes is None:
+                # Stream stall — close cleanly so frontend can reconnect
+                await websocket.close(code=1001, reason="Stream stalled")
+                break
+            await websocket.send_bytes(frame_bytes)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.debug("Video WS closed: %s", e)
+    finally:
+        await drone_service.frame_hub.unregister(q)
+
+
 @router.get("/status")
 async def video_status():
     """Get video stream status."""
@@ -61,40 +91,15 @@ async def video_status():
     }
 
 
-# ── WebRTC signaling (proxied to go2rtc) ──────────────────────
-
-
-@router.post("/webrtc/offer")
-async def webrtc_offer(request: Request):
-    """
-    WebRTC SDP offer/answer exchange.
-
-    Browser sends SDP offer, this endpoint proxies it to go2rtc
-    and returns the SDP answer. Single HTTP round-trip.
-    """
-    if not go2rtc_service.is_running():
-        raise HTTPException(status_code=503, detail="go2rtc is not running")
-
-    sdp_offer = (await request.body()).decode("utf-8")
-    if not sdp_offer:
-        raise HTTPException(status_code=400, detail="Empty SDP offer")
-
-    sdp_answer = await go2rtc_service.webrtc_offer("drone", sdp_offer)
-    if sdp_answer is None:
-        raise HTTPException(status_code=502, detail="Failed to get SDP answer from go2rtc")
-
-    return Response(content=sdp_answer, media_type="application/sdp")
-
-
 @router.get("/capabilities")
 async def video_capabilities():
     """
     Available video transport methods.
 
-    Frontend uses this to choose WebRTC or fall back to MJPEG.
+    Frontend uses this to choose WebSocket or fall back to MJPEG.
     """
     return {
-        "webrtc": go2rtc_service.is_running(),
+        "websocket": True,
         "mjpeg": True,
         "streaming": drone_service.is_video_streaming(),
     }

@@ -10,7 +10,6 @@ pydantic>=2.4.0
 pyyaml>=6.0.1
 python-socketio>=5.10.0
 aiofiles>=23.2.1
-httpx>=0.27.0
 
 # YOLO inference (GPU via CUDA auto-selected when torch+CUDA is installed)
 ultralytics>=8.0.0
@@ -29,8 +28,8 @@ torchvision>=0.15.0
 # Helper for advanced network inspection (optional but recommended)
 psutil>=5.9.0
 
-# NOTE: FFmpeg is required on the system PATH for reliable RTSP playback
-# (Not a Python package). Verify with `ffmpeg -version`.
+# NOTE: FFmpeg is NOT required for the default video pipeline (direct UDP JPEG).
+# Only needed if using RTSP capture (legacy). Verify with `ffmpeg -version`.
 
 # Optional: packet capture helper. Install to enable `tyvyx.tools.packet_sniffer`
 # On Windows, also install Npcap (https://nmap.org/npcap/) and run as admin.

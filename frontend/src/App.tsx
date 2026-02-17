@@ -5,7 +5,7 @@ import { PositionMap } from './components/PositionMap'
 import { PositionIndicator } from './components/PositionIndicator'
 import { TrajectoryControls } from './components/TrajectoryControls'
 import { WifiScanner } from './components/WifiScanner'
-import { WebRTCVideo } from './components/WebRTCVideo'
+import { DroneVideo } from './components/DroneVideo'
 import './App.css'
 
 function App() {
@@ -103,7 +103,7 @@ function App() {
 
             <div className="bg-black aspect-video flex items-center justify-center relative">
               {isStreaming ? (
-                <WebRTCVideo streaming={isStreaming} className="w-full h-full" />
+                <DroneVideo streaming={isStreaming} className="w-full h-full" />
               ) : (
                 <div className="text-dim text-center select-none">
                   <div className="text-5xl mb-3 opacity-30">⬛</div>

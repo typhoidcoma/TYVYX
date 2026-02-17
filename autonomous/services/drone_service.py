@@ -28,7 +28,6 @@ from tyvyx.protocols.raw_udp_sniffer import RawUdpSnifferProtocol
 from tyvyx.utils.dropping_queue import DroppingQueue
 from tyvyx.frame_hub import FrameHub
 from autonomous.services.position_service import position_service
-from autonomous.services.go2rtc_service import go2rtc_service
 
 logger = logging.getLogger(__name__)
 
@@ -194,14 +193,6 @@ class DroneService:
             self._video_protocol = protocol
             logger.info(f"Video stream started (protocol={protocol})")
 
-            # Register MJPEG feed with go2rtc for WebRTC transcoding
-            if go2rtc_service.is_running():
-                mjpeg_url = "ffmpeg:http://127.0.0.1:8000/api/video/feed#video=h264#hardware"
-                if await go2rtc_service.register_stream("drone", mjpeg_url):
-                    logger.info("Registered MJPEG stream with go2rtc for WebRTC")
-                else:
-                    logger.warning("Failed to register stream with go2rtc — WebRTC unavailable")
-
             return {"success": True, "message": f"Video started (protocol={protocol})"}
 
         except Exception as e:
@@ -211,13 +202,23 @@ class DroneService:
     @staticmethod
     def _frame_pump_worker(raw_q, frame_hub, stop_event, loop):
         """Bridge thread: pulls VideoFrames from queue, publishes to asyncio FrameHub.
-        Also feeds position tracking every 3rd frame."""
+        Also feeds position tracking every 3rd frame.
+        Detects stream stalls and notifies clients (borrowed from turbodrone)."""
         frame_counter = 0
+        first_frame_seen = False
+        last_frame_time = time.monotonic()
+        stall_notified = False
+        STALL_TIMEOUT = 3.0
+
         while not stop_event.is_set():
             try:
                 frame = raw_q.get(timeout=1.0)
                 if frame and frame.data:
-                    # Publish raw JPEG to MJPEG clients
+                    first_frame_seen = True
+                    last_frame_time = time.monotonic()
+                    stall_notified = False
+
+                    # Publish raw JPEG to MJPEG/WS clients
                     asyncio.run_coroutine_threadsafe(
                         frame_hub.publish(frame.data), loop
                     )
@@ -231,6 +232,17 @@ class DroneService:
                         if img is not None:
                             _executor.submit(position_service.process_frame, img)
             except queue.Empty:
+                # Stream stall detection: close clients if no frames for too long
+                if first_frame_seen and not stall_notified:
+                    if (time.monotonic() - last_frame_time) > STALL_TIMEOUT:
+                        stall_notified = True
+                        logger.warning("Video stream stall detected (no frames for %.1fs)", STALL_TIMEOUT)
+                        try:
+                            asyncio.run_coroutine_threadsafe(
+                                frame_hub.publish(None), loop
+                            )
+                        except Exception:
+                            pass
                 continue
             except Exception as e:
                 logger.error(f"Frame pump error: {e}")
@@ -253,10 +265,6 @@ class DroneService:
             if self._video_receiver:
                 self._video_receiver.stop()
                 self._video_receiver = None
-
-            # Remove stream from go2rtc
-            if go2rtc_service.is_running():
-                await go2rtc_service.remove_stream("drone")
 
             self._video_streaming = False
             self._video_protocol = None

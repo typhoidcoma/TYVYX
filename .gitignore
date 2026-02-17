@@ -61,7 +61,7 @@ sniffs/**/*.pcap
 Thumbs.db
 Desktop.ini
 
-# Binaries (go2rtc, etc.)
+# Binaries
 bin/
 
 # Build artifacts

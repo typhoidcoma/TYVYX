@@ -267,6 +267,27 @@ See [Protocol Specification](docs/technical/protocol-specification.md) for detai
 **Communication**: UDP, RTSP, WebSocket, REST API
 **Development**: pytest, ruff, black, ESLint, Prettier
 
+## Host Hardware
+
+AI inference runs on the control laptop — not the drone itself (the drone has no compute beyond its flight controller).
+
+| Component | Spec |
+|-----------|------|
+| **Platform** | Windows 11 laptop |
+| **GPU** | NVIDIA RTX 5070 (mobile, 8 GB VRAM) |
+| **CUDA** | Targeted: CUDA 12.x with cuDNN |
+
+The RTX 5070 handles all GPU-accelerated workloads: YOLO11 inference, future SLAM pipelines, and depth estimation models. Wherever a choice exists between CPU and GPU execution, **prefer CUDA** — the bottleneck in this system is latency, and the 5070 will outperform any CPU fallback significantly.
+
+### GPU Usage by Component
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| YOLO11 inference | 🎯 Use `device="cuda"` | Ultralytics auto-selects if available |
+| OpenCV optical flow | ⚠️ CPU only | `cv2.cuda` LK tracker is a future upgrade |
+| Future depth models | 🎯 GPU | PyTorch `model.to("cuda")` |
+| Future ORB-SLAM3 | 🎯 GPU | Compile with CUDA support |
+
 ## Supported Drone Models
 
 These drones all share the same WiFi + UDP + RTSP architecture and are broadly compatible:

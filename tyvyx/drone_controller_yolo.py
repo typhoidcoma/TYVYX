@@ -22,11 +22,31 @@ class DroneVideoProcessor:
 
 	def load_yolo_model(self, model_path: str = "yolo11n.pt"):
 		"""
-		Load YOLO model
-		To use: Install ultralytics and uncomment the code below
+		Load YOLO model on GPU (CUDA) when available, CPU fallback.
+
+		Requires: pip install ultralytics
+		Hardware target: NVIDIA RTX 5070 (mobile) via CUDA 12.x
 		"""
 		try:
-			print("YOLO integration ready!")
+			from ultralytics import YOLO
+			import torch
+
+			device = "cuda" if torch.cuda.is_available() else "cpu"
+			print(f"Loading YOLO model on {device.upper()} ({model_path})")
+
+			self.yolo_model = YOLO(model_path)
+			self.yolo_model.to(device)
+			self.yolo_enabled = True
+			self.device = device
+
+			if device == "cuda":
+				print(f"  GPU: {torch.cuda.get_device_name(0)}")
+				print(f"  VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+
+			print("YOLO model loaded successfully!")
+			return True
+		except ImportError:
+			print("ultralytics not installed — run: pip install ultralytics torch torchvision")
 			return False
 		except Exception as e:
 			print(f"Error loading YOLO model: {e}")
@@ -34,15 +54,29 @@ class DroneVideoProcessor:
 
 	def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, List[Dict]]:
 		"""
-		Process frame with YOLO detection
+		Process frame with YOLO detection (GPU-accelerated when model is loaded).
 
-		Returns processed frame and list of detections
+		Returns processed frame and list of detections.
 		"""
 		if not self.processing_enabled:
 			return frame, []
 
 		detections = []
 		processed_frame = frame.copy()
+
+		# Run YOLO inference on GPU if available
+		if self.yolo_enabled and self.yolo_model is not None:
+			results = self.yolo_model(frame, verbose=False)
+			for result in results:
+				for box in result.boxes:
+					x1, y1, x2, y2 = map(int, box.xyxy[0])
+					conf = float(box.conf[0])
+					cls = int(box.cls[0])
+					label = self.yolo_model.names[cls]
+					detections.append({"label": label, "conf": conf, "bbox": [x1, y1, x2, y2]})
+					cv2.rectangle(processed_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+					cv2.putText(processed_frame, f"{label} {conf:.2f}", (x1, y1 - 8),
+						cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
 		# Update FPS counter
 		self.frame_count += 1

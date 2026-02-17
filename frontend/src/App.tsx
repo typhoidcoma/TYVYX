@@ -42,8 +42,9 @@ function App() {
         console.log('Telemetry:', data)
 
         // Update position store if position data is present (Phase 3)
-        if (data?.position) {
-          updatePosition(data.position)
+        // WebSocket message structure: { type: "telemetry", data: { ..., position: ... } }
+        if (data?.data?.position) {
+          updatePosition(data.data.position)
         }
       })
     }

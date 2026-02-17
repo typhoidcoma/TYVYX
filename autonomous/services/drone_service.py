@@ -6,6 +6,7 @@ Wraps existing TEKYDroneControllerAdvanced for use in FastAPI.
 """
 
 import asyncio
+import concurrent.futures
 import logging
 import sys
 from pathlib import Path
@@ -20,6 +21,9 @@ from teky.video_stream import OpenCVVideoStream
 from autonomous.services.position_service import position_service
 
 logger = logging.getLogger(__name__)
+
+# Thread pool for position processing (shared, avoid blocking video stream)
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="position")
 
 
 class DroneService:
@@ -266,12 +270,7 @@ class DroneService:
 
                 # Process in thread pool to avoid blocking video stream
                 if position_service.is_enabled():
-                    loop = asyncio.get_event_loop()
-                    loop.run_in_executor(
-                        None,
-                        position_service.process_frame,
-                        frame.copy()
-                    )
+                    _executor.submit(position_service.process_frame, frame.copy())
 
         return success, frame
 

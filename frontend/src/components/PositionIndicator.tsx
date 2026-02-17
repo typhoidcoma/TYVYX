@@ -17,11 +17,11 @@ export const PositionIndicator: React.FC = () => {
   const heading = Math.atan2(velocity.vy, velocity.vx) * (180 / Math.PI);
 
   return (
-    <div className="bg-white border-2 border-gray-300 rounded-lg shadow-lg p-4">
+    <div className="bg-card border border-panel rounded-lg shadow-lg p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-800">Position Data</h3>
+        <h3 className="text-lg font-semibold text-heading">Position Data</h3>
         <div className={`px-3 py-1 rounded-full text-sm font-medium ${
-          enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+          enabled ? 'bg-green-900 text-green-300' : 'bg-panel text-muted'
         }`}>
           {enabled ? '🟢 Tracking' : '⚪ Inactive'}
         </div>
@@ -30,17 +30,17 @@ export const PositionIndicator: React.FC = () => {
       <div className="space-y-3">
         {/* Position */}
         <div>
-          <div className="text-sm font-medium text-gray-600 mb-1">Position</div>
+          <div className="text-sm font-medium text-muted mb-1">Position</div>
           <div className="grid grid-cols-2 gap-2">
-            <div className="bg-gray-50 px-3 py-2 rounded">
-              <div className="text-xs text-gray-500">X (Forward)</div>
-              <div className="text-lg font-mono font-semibold text-gray-800">
+            <div className="bg-panel px-3 py-2 rounded">
+              <div className="text-xs text-dim">X (Forward)</div>
+              <div className="text-lg font-mono font-semibold text-heading">
                 {position.x.toFixed(2)} m
               </div>
             </div>
-            <div className="bg-gray-50 px-3 py-2 rounded">
-              <div className="text-xs text-gray-500">Y (Right)</div>
-              <div className="text-lg font-mono font-semibold text-gray-800">
+            <div className="bg-panel px-3 py-2 rounded">
+              <div className="text-xs text-dim">Y (Right)</div>
+              <div className="text-lg font-mono font-semibold text-heading">
                 {position.y.toFixed(2)} m
               </div>
             </div>
@@ -49,17 +49,17 @@ export const PositionIndicator: React.FC = () => {
 
         {/* Velocity */}
         <div>
-          <div className="text-sm font-medium text-gray-600 mb-1">Velocity</div>
+          <div className="text-sm font-medium text-muted mb-1">Velocity</div>
           <div className="grid grid-cols-2 gap-2">
-            <div className="bg-gray-50 px-3 py-2 rounded">
-              <div className="text-xs text-gray-500">VX</div>
-              <div className="text-lg font-mono font-semibold text-gray-800">
+            <div className="bg-panel px-3 py-2 rounded">
+              <div className="text-xs text-dim">VX</div>
+              <div className="text-lg font-mono font-semibold text-heading">
                 {velocity.vx.toFixed(2)} m/s
               </div>
             </div>
-            <div className="bg-gray-50 px-3 py-2 rounded">
-              <div className="text-xs text-gray-500">VY</div>
-              <div className="text-lg font-mono font-semibold text-gray-800">
+            <div className="bg-panel px-3 py-2 rounded">
+              <div className="text-xs text-dim">VY</div>
+              <div className="text-lg font-mono font-semibold text-heading">
                 {velocity.vy.toFixed(2)} m/s
               </div>
             </div>
@@ -68,41 +68,41 @@ export const PositionIndicator: React.FC = () => {
 
         {/* Speed and Heading */}
         <div className="grid grid-cols-2 gap-2">
-          <div className="bg-blue-50 px-3 py-2 rounded">
-            <div className="text-xs text-blue-600 font-medium">Speed</div>
-            <div className="text-lg font-mono font-semibold text-blue-800">
+          <div className="bg-blue-900/40 px-3 py-2 rounded border border-blue-800">
+            <div className="text-xs text-blue-400 font-medium">Speed</div>
+            <div className="text-lg font-mono font-semibold text-blue-300">
               {speed.toFixed(2)} m/s
             </div>
           </div>
-          <div className="bg-purple-50 px-3 py-2 rounded">
-            <div className="text-xs text-purple-600 font-medium">Heading</div>
-            <div className="text-lg font-mono font-semibold text-purple-800">
+          <div className="bg-purple-900/40 px-3 py-2 rounded border border-purple-800">
+            <div className="text-xs text-purple-400 font-medium">Heading</div>
+            <div className="text-lg font-mono font-semibold text-purple-300">
               {heading.toFixed(1)}°
             </div>
           </div>
         </div>
 
         {/* Altitude */}
-        <div className="bg-gray-50 px-3 py-2 rounded">
-          <div className="text-xs text-gray-500">Altitude</div>
-          <div className="text-lg font-mono font-semibold text-gray-800">
+        <div className="bg-panel px-3 py-2 rounded">
+          <div className="text-xs text-dim">Altitude</div>
+          <div className="text-lg font-mono font-semibold text-heading">
             {altitude.toFixed(2)} m
           </div>
         </div>
 
         {/* Tracking Stats */}
         {enabled && (
-          <div className="pt-2 border-t border-gray-200">
+          <div className="pt-2 border-t border-panel">
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div>
-                <span className="text-gray-600">Features:</span>
-                <span className="ml-1 font-mono font-semibold text-gray-800">
+                <span className="text-dim">Features:</span>
+                <span className="ml-1 font-mono font-semibold text-subheading">
                   {feature_count}
                 </span>
               </div>
               <div>
-                <span className="text-gray-600">Trail Points:</span>
-                <span className="ml-1 font-mono font-semibold text-gray-800">
+                <span className="text-dim">Trail Points:</span>
+                <span className="ml-1 font-mono font-semibold text-subheading">
                   {trajectory.length}
                 </span>
               </div>

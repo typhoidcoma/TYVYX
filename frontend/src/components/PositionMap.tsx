@@ -37,8 +37,20 @@ export const PositionMap: React.FC<PositionMapProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
+    // Read theme colors from CSS variables (single source of truth)
+    const root = document.documentElement;
+    const style = getComputedStyle(root);
+    const c = {
+      base:    style.getPropertyValue('--color-base').trim(),
+      panel:   style.getPropertyValue('--color-panel').trim(),
+      dim:     style.getPropertyValue('--color-dim').trim(),
+      muted:   style.getPropertyValue('--color-muted').trim(),
+      heading: style.getPropertyValue('--color-heading').trim(),
+    };
+
+    // Clear canvas with theme background
+    ctx.fillStyle = c.base;
+    ctx.fillRect(0, 0, width, height);
 
     // Calculate center (origin)
     const centerX = width / 2;
@@ -55,7 +67,7 @@ export const PositionMap: React.FC<PositionMapProps> = ({
 
     // Draw grid
     if (showGrid) {
-      ctx.strokeStyle = '#e0e0e0';
+      ctx.strokeStyle = c.panel;
       ctx.lineWidth = 1;
 
       // Vertical grid lines (X axis in world)
@@ -76,7 +88,7 @@ export const PositionMap: React.FC<PositionMapProps> = ({
       }
 
       // Draw axes (thicker)
-      ctx.strokeStyle = '#999';
+      ctx.strokeStyle = c.dim;
       ctx.lineWidth = 2;
 
       // Y axis (vertical through center)
@@ -92,13 +104,13 @@ export const PositionMap: React.FC<PositionMapProps> = ({
       ctx.stroke();
 
       // Origin marker
-      ctx.fillStyle = '#666';
+      ctx.fillStyle = c.dim;
       ctx.beginPath();
       ctx.arc(centerX, centerY, 4, 0, 2 * Math.PI);
       ctx.fill();
 
       // Axis labels
-      ctx.fillStyle = '#666';
+      ctx.fillStyle = c.muted;
       ctx.font = '12px sans-serif';
       ctx.fillText('Y+', centerX + 5, 15);
       ctx.fillText('X+', width - 25, centerY - 5);
@@ -136,7 +148,7 @@ export const PositionMap: React.FC<PositionMapProps> = ({
     const [droneX, droneY] = worldToCanvas(position.x, position.y);
 
     // Drone circle
-    ctx.fillStyle = enabled ? '#10b981' : '#6b7280';  // Green if enabled, gray if not
+    ctx.fillStyle = enabled ? '#10b981' : c.dim;
     ctx.beginPath();
     ctx.arc(droneX, droneY, 12, 0, 2 * Math.PI);
     ctx.fill();
@@ -189,7 +201,7 @@ export const PositionMap: React.FC<PositionMapProps> = ({
     }
 
     // Draw position coordinates
-    ctx.fillStyle = '#000';
+    ctx.fillStyle = c.heading;
     ctx.font = '14px monospace';
     ctx.fillText(
       `Position: (${position.x.toFixed(2)}, ${position.y.toFixed(2)}) m`,
@@ -200,10 +212,10 @@ export const PositionMap: React.FC<PositionMapProps> = ({
   }, [position, velocity, trajectory, enabled, width, height, scale, gridSize, showGrid, showTrajectory]);
 
   return (
-    <div className="border-2 border-gray-300 rounded-lg overflow-hidden shadow-lg">
-      <div className="bg-gray-100 px-4 py-2 border-b border-gray-300">
-        <h3 className="text-lg font-semibold text-gray-800">Position Map</h3>
-        <p className="text-sm text-gray-600">
+    <div className="border-2 border-panel rounded-lg overflow-hidden shadow-lg">
+      <div className="bg-card px-4 py-2 border-b border-panel">
+        <h3 className="text-lg font-semibold text-heading">Position Map</h3>
+        <p className="text-sm text-muted">
           {enabled ? '🟢 Tracking Active' : '⚪ Tracking Inactive'}
         </p>
       </div>
@@ -211,7 +223,7 @@ export const PositionMap: React.FC<PositionMapProps> = ({
         ref={canvasRef}
         width={width}
         height={height}
-        className="bg-white"
+        className="bg-base"
       />
     </div>
   );

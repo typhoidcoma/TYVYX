@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+@theme {
+  /* Surface layers — darkest to lightest */
+  --color-base:       #111827; /* gray-900  page bg, canvas bg      */
+  --color-card:       #1f2937; /* gray-800  card backgrounds        */
+  --color-panel:      #374151; /* gray-700  inner panels, borders   */
+
+  /* Text hierarchy */
+  --color-heading:    #ffffff; /* white     headings + values       */
+  --color-subheading: #d1d5db; /* gray-300  subsection labels       */
+  --color-muted:      #9ca3af; /* gray-400  secondary labels        */
+  --color-dim:        #6b7280; /* gray-500  tertiary, canvas axes   */
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',

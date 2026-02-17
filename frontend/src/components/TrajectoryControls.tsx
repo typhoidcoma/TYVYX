@@ -116,15 +116,15 @@ export const TrajectoryControls: React.FC = () => {
   };
 
   return (
-    <div className="bg-white border-2 border-gray-300 rounded-lg shadow-lg p-4">
-      <h3 className="text-lg font-semibold text-gray-800 mb-4">Position Tracking Controls</h3>
+    <div className="bg-card border border-panel rounded-lg shadow-lg p-4">
+      <h3 className="text-lg font-semibold text-heading mb-4">Position Tracking Controls</h3>
 
       {/* Message Display */}
       {message && (
         <div className={`mb-4 px-4 py-2 rounded-lg text-sm font-medium ${
           messageType === 'success'
-            ? 'bg-green-50 text-green-800 border border-green-200'
-            : 'bg-red-50 text-red-800 border border-red-200'
+            ? 'bg-green-900/50 text-green-300 border border-green-700'
+            : 'bg-red-900/50 text-red-300 border border-red-700'
         }`}>
           {message}
         </div>
@@ -137,8 +137,8 @@ export const TrajectoryControls: React.FC = () => {
           disabled={enabled || loading}
           className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
             enabled || loading
-              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              : 'bg-green-500 text-white hover:bg-green-600'
+              ? 'bg-panel text-dim cursor-not-allowed'
+              : 'bg-green-600 text-heading hover:bg-green-500'
           }`}
         >
           {loading ? '...' : '▶️ Start Tracking'}
@@ -149,8 +149,8 @@ export const TrajectoryControls: React.FC = () => {
           disabled={!enabled || loading}
           className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
             !enabled || loading
-              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              : 'bg-red-500 text-white hover:bg-red-600'
+              ? 'bg-panel text-dim cursor-not-allowed'
+              : 'bg-red-600 text-heading hover:bg-red-500'
           }`}
         >
           {loading ? '...' : '⏹️ Stop Tracking'}
@@ -159,7 +159,7 @@ export const TrajectoryControls: React.FC = () => {
 
       {/* Altitude Control */}
       <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-muted mb-2">
           Altitude (meters)
         </label>
         <div className="flex gap-2">
@@ -170,7 +170,7 @@ export const TrajectoryControls: React.FC = () => {
             step="0.1"
             value={altitudeInput}
             onChange={(e) => setAltitudeInput(e.target.value)}
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-3 py-2 bg-panel border border-panel text-heading rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-dim"
             placeholder="1.0"
           />
           <button
@@ -178,14 +178,14 @@ export const TrajectoryControls: React.FC = () => {
             disabled={loading}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
               loading
-                ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                : 'bg-blue-500 text-white hover:bg-blue-600'
+                ? 'bg-panel text-dim cursor-not-allowed'
+                : 'bg-blue-600 text-heading hover:bg-blue-500'
             }`}
           >
             Set
           </button>
         </div>
-        <div className="mt-1 text-xs text-gray-500">
+        <div className="mt-1 text-xs text-dim">
           Current: {altitude.toFixed(2)} m
         </div>
       </div>
@@ -197,8 +197,8 @@ export const TrajectoryControls: React.FC = () => {
           disabled={loading}
           className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${
             loading
-              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              : 'bg-orange-500 text-white hover:bg-orange-600'
+              ? 'bg-panel text-dim cursor-not-allowed'
+              : 'bg-orange-600 text-heading hover:bg-orange-500'
           }`}
         >
           🔄 Reset Position
@@ -209,8 +209,8 @@ export const TrajectoryControls: React.FC = () => {
           disabled={loading}
           className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${
             loading
-              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              : 'bg-gray-500 text-white hover:bg-gray-600'
+              ? 'bg-panel text-dim cursor-not-allowed'
+              : 'bg-dim text-heading hover:bg-muted'
           }`}
         >
           🗑️ Clear Trajectory
@@ -218,9 +218,9 @@ export const TrajectoryControls: React.FC = () => {
       </div>
 
       {/* Help Text */}
-      <div className="mt-4 pt-4 border-t border-gray-200">
-        <p className="text-xs text-gray-600">
-          <strong>Note:</strong> Start tracking after video is running. Altitude affects
+      <div className="mt-4 pt-4 border-t border-panel">
+        <p className="text-xs text-dim">
+          <strong className="text-muted">Note:</strong> Start tracking after video is running. Altitude affects
           velocity scaling - set to actual height above ground for accurate position estimates.
         </p>
       </div>

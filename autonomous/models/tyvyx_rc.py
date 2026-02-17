@@ -1,8 +1,8 @@
 """
-TEKY RC Model
+TYVYX RC Model
 
-Implements BaseRCModel for TEKY WiFi drone.
-Based on reverse-engineered protocol from existing teky/ package.
+Implements BaseRCModel for TYVYX WiFi drone.
+Based on reverse-engineered protocol from existing tyvyx/ package.
 """
 
 from typing import Optional
@@ -10,17 +10,17 @@ from .base_rc import BaseRCModel, ControlState
 from .control_profile import StickRange, PROFILES
 
 
-class TEKYRCModel(BaseRCModel):
+class TYVYXRCModel(BaseRCModel):
     """
-    RC control model for TEKY drone
+    RC control model for TYVYX drone
 
-    Protocol details (from teky/drone_controller.py):
+    Protocol details (from tyvyx/drone_controller.py):
     - UDP port: 7099
     - Heartbeat: [0x01, 0x01]
     - Camera switch: [0x06, 0x01] or [0x06, 0x02]
     - Screen mode: [0x09, 0x01] or [0x09, 0x02]
 
-    Flight Control (EXPERIMENTAL - from teky/drone_controller_advanced.py):
+    Flight Control (EXPERIMENTAL - from tyvyx/drone_controller_advanced.py):
     - Format: [CMD_ID, throttle, yaw, pitch, roll, checksum]
     - CMD_ID: 0x50
     - Values: 0-255 (128 = neutral)
@@ -29,7 +29,7 @@ class TEKYRCModel(BaseRCModel):
     Note: This is experimental and needs validation through Phase 1 testing!
     """
 
-    # TEKY protocol constants
+    # TYVYX protocol constants
     CMD_ID_FLIGHT = 0x50
     CMD_HEARTBEAT = bytes([0x01, 0x01])
     CMD_CAMERA_1 = bytes([0x06, 0x01])
@@ -37,7 +37,7 @@ class TEKYRCModel(BaseRCModel):
     CMD_SCREEN_1 = bytes([0x09, 0x01])
     CMD_SCREEN_2 = bytes([0x09, 0x02])
 
-    # TEKY stick range (from existing controller)
+    # TYVYX stick range (from existing controller)
     # This is the "logical" range - needs calibration!
     DEFAULT_STICK_RANGE = StickRange(min=0.0, mid=128.0, max=255.0)
 
@@ -48,7 +48,7 @@ class TEKYRCModel(BaseRCModel):
         update_rate_hz: float = 80.0
     ):
         """
-        Initialize TEKY RC model
+        Initialize TYVYX RC model
 
         Args:
             stick_range: Control range (default: 0-128-255)
@@ -60,13 +60,13 @@ class TEKYRCModel(BaseRCModel):
 
         super().__init__(stick_range, profile_name, update_rate_hz)
 
-        # TEKY-specific state
+        # TYVYX-specific state
         self._camera_num = 1
         self._screen_mode = 1
 
     def build_control_packet(self) -> bytes:
         """
-        Build TEKY flight control packet
+        Build TYVYX flight control packet
 
         Format (EXPERIMENTAL):
         [CMD_ID, throttle, yaw, pitch, roll, checksum]
@@ -147,16 +147,16 @@ class TEKYRCModel(BaseRCModel):
             raise ValueError(f"Invalid screen mode: {mode}")
 
     @classmethod
-    def from_calibration(cls, calibration_data: dict, profile_name: str = "normal") -> 'TEKYRCModel':
+    def from_calibration(cls, calibration_data: dict, profile_name: str = "normal") -> 'TYVYXRCModel':
         """
-        Create TEKY RC model from calibration data
+        Create TYVYX RC model from calibration data
 
         Args:
             calibration_data: Dict with 'throttle', 'pitch', 'roll', 'yaw' velocity maps
             profile_name: Control profile to use
 
         Returns:
-            Configured TEKYRCModel
+            Configured TYVYXRCModel
         """
         # Extract hover value for throttle (this is the "mid" point)
         hover_value = calibration_data.get('throttle', {}).get('hover_value', 128.0)
@@ -169,7 +169,7 @@ class TEKYRCModel(BaseRCModel):
 
     def __repr__(self):
         return (
-            f"TEKYRCModel("
+            f"TYVYXRCModel("
             f"T={self._throttle:.0f}, Y={self._yaw:.0f}, "
             f"P={self._pitch:.0f}, R={self._roll:.0f}, "
             f"profile={self.profile.name}, "
@@ -177,27 +177,27 @@ class TEKYRCModel(BaseRCModel):
         )
 
 
-# Predefined TEKY RC model instances
-def create_teky_rc(profile: str = "normal") -> TEKYRCModel:
+# Predefined TYVYX RC model instances
+def create_tyvyx_rc(profile: str = "normal") -> TYVYXRCModel:
     """
-    Create TEKY RC model with default settings
+    Create TYVYX RC model with default settings
 
     Args:
         profile: Control profile name
 
     Returns:
-        Configured TEKYRCModel
+        Configured TYVYXRCModel
     """
-    return TEKYRCModel(profile_name=profile)
+    return TYVYXRCModel(profile_name=profile)
 
 
-def create_autonomous_teky_rc() -> TEKYRCModel:
+def create_autonomous_tyvyx_rc() -> TYVYXRCModel:
     """
-    Create TEKY RC model optimized for autonomous control
+    Create TYVYX RC model optimized for autonomous control
 
     Uses linear response (no expo) for PID control
 
     Returns:
-        TEKYRCModel configured for autonomous operation
+        TYVYXRCModel configured for autonomous operation
     """
-    return TEKYRCModel(profile_name="autonomous", update_rate_hz=50.0)
+    return TYVYXRCModel(profile_name="autonomous", update_rate_hz=50.0)

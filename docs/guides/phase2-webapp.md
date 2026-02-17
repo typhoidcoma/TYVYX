@@ -9,7 +9,7 @@ Phase 2 is complete! You now have a modern web interface with manual drone contr
 - ✅ **Drone control** - Connect, video, camera switching
 - ✅ **WebSocket support** - Real-time telemetry streaming
 - ✅ **CORS enabled** - Frontend can connect
-- ✅ **Wraps existing code** - Uses TEKYDroneControllerAdvanced
+- ✅ **Wraps existing code** - Uses TYVYXDroneControllerAdvanced
 
 **Key Files:**
 - [`autonomous/api/main.py`](autonomous/api/main.py) - FastAPI app
@@ -34,7 +34,7 @@ Phase 2 is complete! You now have a modern web interface with manual drone contr
 ### Terminal 1: Start Backend
 
 ```bash
-cd i:/Projects/Drones/TEKY
+cd i:/Projects/Drones/TYVYX
 
 # Make sure dependencies are installed
 pip install -r requirements.txt
@@ -65,7 +65,7 @@ Frontend will run at: **http://localhost:5173**
 
 ### 1. Connect to Drone
 
-1. Power on your TEKY drone
+1. Power on your TYVYX drone
 2. Connect your computer to drone WiFi (HD-720P-*, HD-FPV-*, etc.)
 3. Verify drone is at 192.168.1.1: `ping 192.168.1.1`
 4. Click **"Connect"** button in the web interface
@@ -160,7 +160,7 @@ Response:
 
 ```bash
 # Run with auto-reload
-cd i:/Projects/Drones/TEKY
+cd i:/Projects/Drones/TYVYX
 python -m autonomous.api.main
 
 # The server auto-reloads on code changes
@@ -192,7 +192,7 @@ npm run build
 ## 📂 Project Structure
 
 ```
-TEKY/
+TYVYX/
 ├── autonomous/
 │   ├── api/
 │   │   ├── main.py              # FastAPI app
@@ -215,7 +215,7 @@ TEKY/
 │   ├── package.json
 │   └── vite.config.ts
 │
-└── teky/                        # Existing code (preserved)
+└── tyvyx/                        # Existing code (preserved)
 ```
 
 ## ✅ Phase 2 Verification
@@ -270,7 +270,7 @@ ping 192.168.1.1
 # Check WiFi network name (HD-720P-*, etc.)
 
 # Try original Flask app first
-python -m teky.app
+python -m tyvyx.app
 # Visit http://localhost:5000
 ```
 

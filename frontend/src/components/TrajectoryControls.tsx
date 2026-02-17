@@ -116,7 +116,7 @@ export const TrajectoryControls: React.FC = () => {
   };
 
   return (
-    <div className="bg-card border border-panel rounded-lg shadow-lg p-4">
+    <div className="bg-card border border-border rounded-lg shadow-lg p-4">
       <h3 className="text-lg font-semibold text-heading mb-4">Position Tracking Controls</h3>
 
       {/* Message Display */}
@@ -170,7 +170,7 @@ export const TrajectoryControls: React.FC = () => {
             step="0.1"
             value={altitudeInput}
             onChange={(e) => setAltitudeInput(e.target.value)}
-            className="flex-1 px-3 py-2 bg-panel border border-panel text-heading rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-dim"
+            className="flex-1 px-3 py-2 bg-panel border border-border text-heading rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-dim"
             placeholder="1.0"
           />
           <button
@@ -218,7 +218,7 @@ export const TrajectoryControls: React.FC = () => {
       </div>
 
       {/* Help Text */}
-      <div className="mt-4 pt-4 border-t border-panel">
+      <div className="mt-4 pt-4 border-t border-divider">
         <p className="text-xs text-dim">
           <strong className="text-muted">Note:</strong> Start tracking after video is running. Altitude affects
           velocity scaling - set to actual height above ground for accurate position estimates.

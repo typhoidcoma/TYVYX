@@ -1,4 +1,4 @@
-"""TEKY WiFi Drone Controller with YOLO integration (packaged copy)."""
+"""TYVYX WiFi Drone Controller with YOLO integration (packaged copy)."""
 
 import cv2
 import socket
@@ -72,7 +72,7 @@ class DroneVideoProcessor:
 		print(f"Frame processing {status}")
 
 
-class TEKYDroneYOLO:
+class TYVYXDroneYOLO:
 	"""YOLO-ready drone controller"""
 
 	DRONE_IP = "192.168.1.1"
@@ -303,11 +303,11 @@ class TEKYDroneYOLO:
 def main():
 	"""Main application with YOLO integration ready"""
 	print("=" * 70)
-	print("TEKY WiFi Drone Controller - YOLO Ready")
+	print("TYVYX WiFi Drone Controller - YOLO Ready")
 	print("=" * 70)
 
 	# Create drone controller
-	drone = TEKYDroneYOLO()
+	drone = TYVYXDroneYOLO()
 
 	# Connect to drone
 	if not drone.connect():
@@ -334,7 +334,7 @@ def main():
 				processed_frame, detections = drone.video_processor.process_frame(frame)
 
 				# Display frame
-				cv2.imshow("TEKY Drone - YOLO Ready", processed_frame)
+				cv2.imshow("TYVYX Drone - YOLO Ready", processed_frame)
 
 				# Record if active
 				if drone.is_recording and drone.video_writer:

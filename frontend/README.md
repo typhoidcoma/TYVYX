@@ -1,6 +1,6 @@
-# TEKY Drone - React Frontend
+# TYVYX Drone - React Frontend
 
-Modern React + TypeScript interface for TEKY drone control (Phase 2).
+Modern React + TypeScript interface for TYVYX drone control (Phase 2).
 
 ## Features
 
@@ -249,7 +249,7 @@ See [Contributing Guidelines](../docs/contributing/CONTRIBUTING.md) for:
 
 ## License
 
-Part of the TEKY drone controller project. Educational purposes only.
+Part of the TYVYX drone controller project. Educational purposes only.
 
 ---
 

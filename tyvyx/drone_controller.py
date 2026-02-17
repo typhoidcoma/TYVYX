@@ -1,8 +1,8 @@
-"""TEKY WiFi Drone Controller (package copy).
+"""TYVYX WiFi Drone Controller (package copy).
 
 This module is the packaged copy of the top-level `drone_controller.py`.
 Imports have been adjusted to use package-relative imports so it can live
-inside the `teky` package.
+inside the `tyvyx` package.
 """
 
 import socket
@@ -14,8 +14,8 @@ import cv2
 import numpy as np
 
 
-class TEKYDroneController:
-	"""Controller for TEKY WiFi Drone"""
+class TYVYXDroneController:
+	"""Controller for TYVYX WiFi Drone"""
 
 	# Network Configuration
 	DRONE_IP = "192.168.1.1"
@@ -314,7 +314,7 @@ class TEKYDroneController:
 def main():
 	"""Main application loop"""
 	print("=" * 60)
-	print("TEKY WiFi Drone Controller")
+	print("TYVYX WiFi Drone Controller")
 	print("=" * 60)
 	print("\nControls:")
 	print("  Q - Quit")
@@ -328,7 +328,7 @@ def main():
 	print("=" * 60)
 
 	# Create drone controller
-	drone = TEKYDroneController()
+	drone = TYVYXDroneController()
 
 	# Connect to drone
 	if not drone.connect():
@@ -356,7 +356,7 @@ def main():
 					# Add overlay text
 					cv2.putText(
 						frame,
-						"TEKY Drone - Press Q to quit",
+						"TYVYX Drone - Press Q to quit",
 						(10, 30),
 						cv2.FONT_HERSHEY_SIMPLEX,
 						0.7,
@@ -383,7 +383,7 @@ def main():
 					)
 
 					# Display frame
-					cv2.imshow("TEKY Drone Video Feed", frame)
+					cv2.imshow("TYVYX Drone Video Feed", frame)
 				else:
 					print("Failed to get frame")
 

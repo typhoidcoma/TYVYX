@@ -1,8 +1,8 @@
 """
-FastAPI Backend for TEKY Autonomous Drone System
+FastAPI Backend for TYVYX Autonomous Drone System
 
 Main application entry point for Phase 2+.
-Wraps existing TEKYDroneControllerAdvanced with modern async API.
+Wraps existing TYVYXDroneControllerAdvanced with modern async API.
 """
 
 from fastapi import FastAPI, HTTPException
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown of services.
     """
     # Startup
-    logger.info("🚀 Starting TEKY Autonomous Drone System...")
+    logger.info("🚀 Starting TYVYX Autonomous Drone System...")
 
     try:
         # Initialize drone service (but don't connect yet)
@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    logger.info("🛑 Shutting down TEKY Autonomous Drone System...")
+    logger.info("🛑 Shutting down TYVYX Autonomous Drone System...")
     try:
         await drone_service.shutdown()
         logger.info("✅ Drone service shut down cleanly")
@@ -70,8 +70,8 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="TEKY Autonomous Drone API",
-    description="Backend API for TEKY autonomous drone control system (Phase 3: Position Tracking)",
+    title="TYVYX Autonomous Drone API",
+    description="Backend API for TYVYX autonomous drone control system (Phase 3: Position Tracking)",
     version="0.3.0",
     lifespan=lifespan
 )
@@ -101,7 +101,7 @@ app.include_router(websocket_router, prefix="/ws", tags=["websocket"])
 async def root():
     """Root endpoint"""
     return {
-        "name": "TEKY Autonomous Drone API",
+        "name": "TYVYX Autonomous Drone API",
         "version": "0.3.0",
         "status": "running",
         "docs": "/docs",

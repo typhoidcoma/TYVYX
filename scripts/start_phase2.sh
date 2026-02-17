@@ -1,7 +1,7 @@
 #!/bin/bash
 # Start Phase 2: Backend and Frontend
 
-echo "🚀 Starting TEKY Phase 2..."
+echo "🚀 Starting TYVYX Phase 2..."
 echo ""
 echo "Backend: http://localhost:8000"
 echo "Frontend: http://localhost:5173"
@@ -9,7 +9,7 @@ echo ""
 
 # Check if in correct directory
 if [ ! -f "autonomous/api/main.py" ]; then
-    echo "❌ Error: Run this script from TEKY project root"
+    echo "❌ Error: Run this script from TYVYX project root"
     exit 1
 fi
 

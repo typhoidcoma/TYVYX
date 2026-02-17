@@ -1,4 +1,4 @@
-"""Simple, minimal OpenCV video stream helper for TEKY.
+"""Simple, minimal OpenCV video stream helper for TYVYX.
 
 This stripped-down helper keeps a threaded VideoCapture reader and exposes
 `start()`, `read()`, `stop()` and `is_opened()` with a minimal feature set

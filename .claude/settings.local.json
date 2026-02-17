@@ -16,7 +16,8 @@
       "Bash(git rm:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(find \"I:/Projects/Drones/TEKY\" -not -path \"*/.git/*\" -not -path \"*/node_modules/*\" -not -path \"*/__pycache__/*\" -not -path \"*/.claude/*\" -not -name \"*.lock\" -not -name \"package-lock.json\" -type f -name \"*.json\" -exec sed -i 's/TEKY/TYVYX/g; s/teky/tyvyx/g; s/Teky/Tyvyx/g' {} +)"
     ]
   }
 }

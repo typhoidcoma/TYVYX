@@ -1,6 +1,6 @@
-# YOLO11 Integration Guide for TEKY Drone
+# YOLO11 Integration Guide for TYVYX Drone
 
-This guide shows how to integrate YOLO11 object detection with your TEKY WiFi drone using OpenCV.
+This guide shows how to integrate YOLO11 object detection with your TYVYX WiFi drone using OpenCV.
 
 ## Quick Start
 
@@ -87,11 +87,11 @@ Press `Y` to load the YOLO model when the video stream starts.
 ### Basic Object Detection
 
 ```python
-from drone_controller_yolo import TEKYDroneYOLO
+from drone_controller_yolo import TYVYXDroneYOLO
 import cv2
 
 # Create and connect
-drone = TEKYDroneYOLO()
+drone = TYVYXDroneYOLO()
 drone.connect()
 drone.start_video_stream()
 

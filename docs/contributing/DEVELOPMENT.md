@@ -1,6 +1,6 @@
 # Development Environment Setup
 
-This guide covers setting up your development environment for contributing to the TEKY drone controller project.
+This guide covers setting up your development environment for contributing to the TYVYX drone controller project.
 
 ## Table of Contents
 
@@ -29,7 +29,7 @@ This guide covers setting up your development environment for contributing to th
 ### Hardware Requirements
 
 - **Computer**: WiFi-capable laptop or desktop
-- **Drone**: TEKY WiFi drone (HD-720P-*, HD-FPV-*, HD720-*, or FHD-* models)
+- **Drone**: TYVYX WiFi drone (HD-720P-*, HD-FPV-*, HD720-*, or FHD-* models)
 - **Minimum RAM**: 4GB (8GB recommended for frontend development)
 - **Storage**: 2GB free space (mostly for node_modules)
 
@@ -40,8 +40,8 @@ This guide covers setting up your development environment for contributing to th
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/TEKY.git
-cd TEKY
+git clone https://github.com/YOUR_USERNAME/TYVYX.git
+cd TYVYX
 ```
 
 ### 2. Create Virtual Environment
@@ -180,7 +180,7 @@ Run backend and frontend separately in two terminals:
 
 ```bash
 # From project root
-cd i:/Projects/Drones/TEKY
+cd i:/Projects/Drones/TYVYX
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 
 python -m autonomous.api.main
@@ -204,10 +204,10 @@ Frontend runs at: **http://localhost:5173**
 ### Option 2: Legacy Flask App
 
 ```bash
-cd i:/Projects/Drones/TEKY
+cd i:/Projects/Drones/TYVYX
 source .venv/bin/activate
 
-python -m teky.app
+python -m tyvyx.app
 ```
 
 Flask runs at: **http://localhost:5000**
@@ -215,7 +215,7 @@ Flask runs at: **http://localhost:5000**
 ### Option 3: Basic Controller (No Web UI)
 
 ```bash
-python -m teky.drone_controller
+python -m tyvyx.drone_controller
 ```
 
 Displays video window with keyboard controls.
@@ -238,7 +238,7 @@ ruff check .
 ruff check --fix .
 
 # Check specific file
-ruff check teky/drone_controller.py
+ruff check tyvyx/drone_controller.py
 ```
 
 Configuration in `pyproject.toml` or `ruff.toml`.
@@ -255,7 +255,7 @@ black .
 black --check .
 
 # Format specific file
-black teky/drone_controller.py
+black tyvyx/drone_controller.py
 ```
 
 #### MyPy (Type Checker)
@@ -263,7 +263,7 @@ black teky/drone_controller.py
 Optional type checking:
 
 ```bash
-mypy teky/
+mypy tyvyx/
 ```
 
 ### Frontend Tools
@@ -316,10 +316,10 @@ pytest tests/test_drone_controller.py
 pytest -k "test_heartbeat"
 
 # Run with coverage report
-pytest --cov=teky --cov=autonomous
+pytest --cov=tyvyx --cov=autonomous
 
 # Generate HTML coverage report
-pytest --cov=teky --cov-report=html
+pytest --cov=tyvyx --cov-report=html
 # Open htmlcov/index.html in browser
 ```
 
@@ -495,7 +495,7 @@ npm run build
 2. Check firewall isn't blocking Python
 3. Run network diagnostics:
    ```bash
-   python -m teky.network_diagnostics
+   python -m tyvyx.network_diagnostics
    ```
 
 #### Video Stream Not Working
@@ -558,10 +558,10 @@ npm run build
 
 | Command | Purpose |
 |---------|---------|
-| `python -m teky.app` | Run Flask web interface |
+| `python -m tyvyx.app` | Run Flask web interface |
 | `python -m autonomous.api.main` | Run FastAPI backend |
-| `python -m teky.drone_controller` | Run basic controller |
-| `python -m teky.network_diagnostics` | Test drone connection |
+| `python -m tyvyx.drone_controller` | Run basic controller |
+| `python -m tyvyx.network_diagnostics` | Test drone connection |
 | `pytest` | Run unit tests |
 | `ruff check .` | Lint Python code |
 | `black .` | Format Python code |

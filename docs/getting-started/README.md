@@ -1,4 +1,4 @@
-# TEKY Drone Control - Getting Started Guide
+# TYVYX Drone Control - Getting Started Guide
 
 ## Quick Start
 
@@ -8,14 +8,14 @@ Before you begin, ensure you have:
 
 - ✅ Python 3.7 or higher installed
 - ✅ WiFi-capable computer
-- ✅ TEKY WiFi drone (powered on)
+- ✅ TYVYX WiFi drone (powered on)
 - ✅ Basic understanding of command line/terminal
 
 ### 2. Installation
 
 ```bash
 # Clone or navigate to the project directory
-cd TEKY_Working
+cd TYVYX_Working
 
 # Install Python dependencies
 pip install -r requirements.txt
@@ -49,7 +49,7 @@ pip install -r requirements-dev.txt  # for running tests and linters (optional)
 
 ### 3. Connect to Drone
 
-1. Turn on your TEKY drone
+1. Turn on your TYVYX drone
 2. On your computer, look for WiFi network starting with:
    - `HD-720P-`
    - `HD-FPV-`
@@ -107,7 +107,7 @@ Additional controls:
 
 ### How It Works
 
-The TEKY drone uses:
+The TYVYX drone uses:
 1. **WiFi Access Point**: Drone creates its own WiFi network
 2. **UDP Commands**: Control commands sent to `192.168.1.1:7099`
 3. **RTSP Video**: Live video stream at `rtsp://192.168.1.1:7070/webcam`

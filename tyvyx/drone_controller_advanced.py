@@ -1,7 +1,7 @@
-"""TEKY WiFi Drone Controller - Advanced (packaged copy)
+"""TYVYX WiFi Drone Controller - Advanced (packaged copy)
 
 This is the packaged copy of `drone_controller_advanced.py`. Imports
-are package-relative so it can be used inside `teky`.
+are package-relative so it can be used inside `tyvyx`.
 """
 
 import cv2
@@ -139,8 +139,8 @@ class FlightController:
 		]
 
 
-class TEKYDroneControllerAdvanced:
-	"""Advanced controller for TEKY WiFi Drone with flight controls"""
+class TYVYXDroneControllerAdvanced:
+	"""Advanced controller for TYVYX WiFi Drone with flight controls"""
 
 	# Network Configuration
 	DRONE_IP = "192.168.1.1"
@@ -372,7 +372,7 @@ class TEKYDroneControllerAdvanced:
 def main():
 	"""Main application loop with flight controls"""
 	print("=" * 70)
-	print("TEKY WiFi Drone Controller - ADVANCED EDITION")
+	print("TYVYX WiFi Drone Controller - ADVANCED EDITION")
 	print("=" * 70)
 	print("\n⚠️  WARNING: Flight controls are EXPERIMENTAL!")
 	print("   They may not work or could behave unexpectedly.")
@@ -394,7 +394,7 @@ def main():
 	print("=" * 70)
 
 	# Create drone controller
-	drone = TEKYDroneControllerAdvanced()
+	drone = TYVYXDroneControllerAdvanced()
 
 	# Connect to drone
 	if not drone.connect():
@@ -420,7 +420,7 @@ def main():
 					y_offset = 30
 					cv2.putText(
 						frame,
-						"TEKY Drone Controller - Press Q to quit",
+						"TYVYX Drone Controller - Press Q to quit",
 						(10, y_offset),
 						cv2.FONT_HERSHEY_SIMPLEX,
 						0.6,
@@ -468,7 +468,7 @@ def main():
 							)
 							y_offset += 20
 
-					cv2.imshow("TEKY Drone Video Feed", frame)
+					cv2.imshow("TYVYX Drone Video Feed", frame)
 				else:
 					print("Failed to get frame")
 

@@ -20,7 +20,7 @@ class _FakeVideoStream:
 
 @pytest.fixture(autouse=True)
 def patch_video_stream(monkeypatch):
-    import teky.video_stream as vsmod
+    import tyvyx.video_stream as vsmod
 
     monkeypatch.setattr(vsmod, 'OpenCVVideoStream', _FakeVideoStream)
     yield

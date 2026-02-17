@@ -2,7 +2,7 @@
 Drone Service
 
 High-level service that manages drone operations.
-Wraps existing TEKYDroneControllerAdvanced for use in FastAPI.
+Wraps existing TYVYXDroneControllerAdvanced for use in FastAPI.
 """
 
 import asyncio
@@ -16,8 +16,8 @@ import time
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from teky.drone_controller_advanced import TEKYDroneControllerAdvanced
-from teky.video_stream import OpenCVVideoStream
+from tyvyx.drone_controller_advanced import TYVYXDroneControllerAdvanced
+from tyvyx.video_stream import OpenCVVideoStream
 from autonomous.services.position_service import position_service
 
 logger = logging.getLogger(__name__)
@@ -31,11 +31,11 @@ class DroneService:
     High-level drone service
 
     Singleton service that manages drone connection, video streaming,
-    and provides async interface to existing TEKY controller.
+    and provides async interface to existing TYVYX controller.
     """
 
     def __init__(self):
-        self.drone: Optional[TEKYDroneControllerAdvanced] = None
+        self.drone: Optional[TYVYXDroneControllerAdvanced] = None
         self.video_stream: Optional[OpenCVVideoStream] = None
 
         self._connected = False
@@ -76,7 +76,7 @@ class DroneService:
             logger.info(f"Connecting to drone at {drone_ip}...")
 
             # Create drone controller
-            self.drone = TEKYDroneControllerAdvanced(drone_ip=drone_ip)
+            self.drone = TYVYXDroneControllerAdvanced(drone_ip=drone_ip)
 
             # Connect in thread pool (blocking operation)
             loop = asyncio.get_event_loop()

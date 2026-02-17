@@ -212,8 +212,8 @@ export const PositionMap: React.FC<PositionMapProps> = ({
   }, [position, velocity, trajectory, enabled, width, height, scale, gridSize, showGrid, showTrajectory]);
 
   return (
-    <div className="border-2 border-panel rounded-lg overflow-hidden shadow-lg">
-      <div className="bg-card px-4 py-2 border-b border-panel">
+    <div className="border-2 border-border rounded-lg overflow-hidden shadow-lg">
+      <div className="bg-card px-4 py-2 border-b border-divider">
         <h3 className="text-lg font-semibold text-heading">Position Map</h3>
         <p className="text-sm text-muted">
           {enabled ? '🟢 Tracking Active' : '⚪ Tracking Inactive'}

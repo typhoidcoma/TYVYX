@@ -1,7 +1,7 @@
-# TEKY Project — API Reference
+# TYVYX Project — API Reference
 
 This document provides a concise reference to the main modules, classes,
-and public methods in the TEKY repository. It is intended as a quick
+and public methods in the TYVYX repository. It is intended as a quick
 starting guide for contributors and users.
 
 ## Modules
@@ -26,15 +26,15 @@ starting guide for contributors and users.
 
 ## Key Classes and Methods
 
-- `TEKYDroneController` (in `drone_controller.py`)
+- `TYVYXDroneController` (in `drone_controller.py`)
   - `connect() -> bool`: Establish UDP connection and start threads.
   - `disconnect()`: Stop threads and close sockets.
   - `start_video_stream() -> bool`: Open RTSP stream via OpenCV.
   - `get_frame() -> (bool, np.ndarray)`: Grab a frame from the stream.
   - `send_command(command: bytes) -> bool`: Send a UDP command to drone.
 
-- `TEKYDroneControllerAdvanced` (in `drone_controller_advanced.py`)
-  - Same API as `TEKYDroneController` plus a `flight_controller` attribute.
+- `TYVYXDroneControllerAdvanced` (in `drone_controller_advanced.py`)
+  - Same API as `TYVYXDroneController` plus a `flight_controller` attribute.
 
 - `FlightController` (in `drone_controller_advanced.py`)
   - `start()` / `stop()`: Start/stop background command sending.
@@ -46,7 +46,7 @@ starting guide for contributors and users.
   - `process_frame(frame: np.ndarray) -> (np.ndarray, list)`: Process a
     frame, optionally run detection, and return annotated frame + detections.
 
-- `TEKYDroneYOLO` (in `drone_controller_yolo.py`)
+- `TYVYXDroneYOLO` (in `drone_controller_yolo.py`)
   - Adds recording and processing features on top of the base controller.
 
 - `DroneNetworkDiagnostics` (in `network_diagnostics.py`)

@@ -17,7 +17,7 @@ export const PositionIndicator: React.FC = () => {
   const heading = Math.atan2(velocity.vy, velocity.vx) * (180 / Math.PI);
 
   return (
-    <div className="bg-card border border-panel rounded-lg shadow-lg p-4">
+    <div className="bg-card border border-border rounded-lg shadow-lg p-4">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-heading">Position Data</h3>
         <div className={`px-3 py-1 rounded-full text-sm font-medium ${
@@ -92,7 +92,7 @@ export const PositionIndicator: React.FC = () => {
 
         {/* Tracking Stats */}
         {enabled && (
-          <div className="pt-2 border-t border-panel">
+          <div className="pt-2 border-t border-divider">
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div>
                 <span className="text-dim">Features:</span>

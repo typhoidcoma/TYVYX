@@ -2,7 +2,7 @@
 Base RC Model
 
 Abstract base class for drone control models.
-Adapted from turbodrone architecture for TEKY.
+Adapted from turbodrone architecture for TYVYX.
 """
 
 from abc import ABC, abstractmethod

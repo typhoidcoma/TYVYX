@@ -25,10 +25,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
-# Add parent directory to path to import teky
+# Add parent directory to path to import tyvyx
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from teky.drone_controller_advanced import TEKYDroneControllerAdvanced
+from tyvyx.drone_controller_advanced import TYVYXDroneControllerAdvanced
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,7 +45,7 @@ class FlightControlTester:
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
-        self.drone: Optional[TEKYDroneControllerAdvanced] = None
+        self.drone: Optional[TYVYXDroneControllerAdvanced] = None
         self.test_log: List[Dict] = []
         self.is_connected = False
 
@@ -59,7 +59,7 @@ class FlightControlTester:
         logger.info(f"Connecting to drone at {self.drone_ip}...")
 
         try:
-            self.drone = TEKYDroneControllerAdvanced(drone_ip=self.drone_ip)
+            self.drone = TYVYXDroneControllerAdvanced(drone_ip=self.drone_ip)
 
             if self.drone.connect():
                 logger.info("✅ Connected to drone successfully")

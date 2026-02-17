@@ -1,7 +1,7 @@
-# TEKY Drone Reverse Engineering Notes
+# TYVYX Drone Reverse Engineering Notes
 
 ## Overview
-This document contains the reverse engineering findings from the Android app for the TEKY WiFi drone.
+This document contains the reverse engineering findings from the Android app for the TYVYX WiFi drone.
 
 ## Network Configuration
 

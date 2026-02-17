@@ -2,7 +2,7 @@ import os
 
 
 def test_network_diagnostics_log(tmp_path):
-    from teky.network_diagnostics import DroneNetworkDiagnostics
+    from tyvyx.network_diagnostics import DroneNetworkDiagnostics
 
     dn = DroneNetworkDiagnostics()
     # override log file to tmp path

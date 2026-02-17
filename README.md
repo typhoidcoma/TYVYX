@@ -1,12 +1,12 @@
-# TEKY WiFi Drone Controller
+# TYVYX WiFi Drone Controller
 
 > Reverse-engineered Python control system with autonomous navigation capabilities
 
-A comprehensive drone control system for TEKY WiFi drones, featuring manual control, computer vision integration, and an autonomous navigation framework.
+A comprehensive drone control system for TYVYX WiFi drones, featuring manual control, computer vision integration, and an autonomous navigation framework.
 
 ## Overview
 
-This project provides complete control over TEKY WiFi drones through reverse-engineered UDP protocols. Built on reverse engineering of the official Android app, it includes basic video streaming, manual controls, and an extensible autonomous navigation system.
+This project provides complete control over TYVYX WiFi drones through reverse-engineered UDP protocols. Built on reverse engineering of the official Android app, it includes basic video streaming, manual controls, and an extensible autonomous navigation system.
 
 **Project Status**:
 - ✅ Phase 1: Flight control calibration tools
@@ -44,7 +44,7 @@ This project provides complete control over TEKY WiFi drones through reverse-eng
 
 - Python 3.8 or higher
 - FFmpeg (for video streaming)
-- TEKY WiFi drone (HD-720P-*, HD-FPV-*, HD720-*, FHD-* models)
+- TYVYX WiFi drone (HD-720P-*, HD-FPV-*, HD720-*, FHD-* models)
 
 ### Installation
 
@@ -66,10 +66,10 @@ pip install -r requirements.txt
 ping 192.168.1.1
 
 # 3. Run basic controller
-python -m teky.drone_controller
+python -m tyvyx.drone_controller
 
 # Or run web interface
-python -m teky.app
+python -m tyvyx.app
 # Visit http://localhost:5000
 ```
 
@@ -90,8 +90,8 @@ npm run dev
 ## Project Structure
 
 ```
-TEKY/
-├── teky/              # Core drone control package
+TYVYX/
+├── tyvyx/              # Core drone control package
 │   ├── drone_controller.py          # Basic controller
 │   ├── drone_controller_advanced.py # With flight controls
 │   ├── drone_controller_yolo.py     # With object detection
@@ -171,7 +171,7 @@ TEKY/
 ### Basic Video Control
 
 ```python
-from teky.drone_controller import DroneController
+from tyvyx.drone_controller import DroneController
 
 controller = DroneController()
 controller.connect_to_drone()
@@ -182,9 +182,9 @@ controller.start_video()
 ### Advanced Flight Control
 
 ```python
-from teky.drone_controller_advanced import TEKYDroneControllerAdvanced
+from tyvyx.drone_controller_advanced import TYVYXDroneControllerAdvanced
 
-controller = TEKYDroneControllerAdvanced()
+controller = TYVYXDroneControllerAdvanced()
 controller.connect_to_drone()
 controller.start_video()
 # Use keyboard for flight controls
@@ -193,9 +193,9 @@ controller.start_video()
 ### YOLO Object Detection
 
 ```python
-from teky.drone_controller_yolo import TEKYDroneControllerYOLO
+from tyvyx.drone_controller_yolo import TYVYXDroneControllerYOLO
 
-controller = TEKYDroneControllerYOLO()
+controller = TYVYXDroneControllerYOLO()
 controller.connect_to_drone()
 controller.start_video()
 # Video with object detection overlay
@@ -268,7 +268,7 @@ See [Protocol Specification](docs/technical/protocol-specification.md) for detai
 - HD720-* (compatible)
 - FHD-* (compatible)
 
-*Based on reverse engineering of common TEKY WiFi drone firmware*
+*Based on reverse engineering of common TYVYX WiFi drone firmware*
 
 ## Acknowledgments
 
@@ -281,7 +281,7 @@ See [Protocol Specification](docs/technical/protocol-specification.md) for detai
 
 Educational purposes only. Use at your own risk.
 
-This project is not affiliated with or endorsed by TEKY or the original drone manufacturer. All trademarks are property of their respective owners.
+This project is not affiliated with or endorsed by TYVYX or the original drone manufacturer. All trademarks are property of their respective owners.
 
 ---
 

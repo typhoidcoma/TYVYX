@@ -1,4 +1,4 @@
-"""Packet sniffing utility for TEKY drone traffic.
+"""Packet sniffing utility for TYVYX drone traffic.
 
 This tool attempts to capture UDP packets to/from the drone for protocol
 analysis. It prefers `scapy` (libpcap) when available. If scapy/pcap is not
@@ -6,10 +6,10 @@ installed, it will try to use `tshark` (part of Wireshark) as a fallback.
 
 Usage examples:
   # Capture for 30 seconds and save pcap
-  python -m teky.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 30 --out drone.pcap
+  python -m tyvyx.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 30 --out drone.pcap
 
   # Capture and also produce a hex log
-  python -m teky.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 20 --out drone.pcap --hexlog drone_hex.log
+  python -m tyvyx.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 20 --out drone.pcap --hexlog drone_hex.log
 
 Notes:
 - On Windows, running scapy sniffing requires WinPcap/NPcap and admin privileges.
@@ -132,7 +132,7 @@ def main():
 
     # Fallback to tshark
     if not has_tshark():
-        print('Neither scapy nor tshark available. You can use the UDP proxy: python -m teky.tools.udp_proxy')
+        print('Neither scapy nor tshark available. You can use the UDP proxy: python -m tyvyx.tools.udp_proxy')
         return
 
     # Build capture filter for tshark (BPF)

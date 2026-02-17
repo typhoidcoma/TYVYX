@@ -126,12 +126,12 @@ function App() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <header className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">🚁 TEKY Drone Control</h1>
+          <h1 className="text-4xl font-bold mb-2">🚁 TYVYX Drone Control</h1>
           <p className="text-muted">Phase 3: Position Tracking with Optical Flow</p>
         </header>
 
         {/* Status Bar */}
-        <div className="bg-card rounded-lg p-4 mb-6">
+        <div className="bg-card border border-border rounded-lg p-4 mb-6">
           <div className="flex items-center justify-between">
             <div>
               <span className="text-muted mr-2">Status:</span>
@@ -150,7 +150,7 @@ function App() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Video Feed */}
-          <div className="bg-card rounded-lg p-6">
+          <div className="bg-card border border-border rounded-lg p-6">
             <h2 className="text-2xl font-bold mb-4">Video Feed</h2>
             <div className="bg-black rounded-lg aspect-video flex items-center justify-center">
               {videoStarted && status?.video_streaming ? (
@@ -170,7 +170,7 @@ function App() {
           </div>
 
           {/* Controls */}
-          <div className="bg-card rounded-lg p-6">
+          <div className="bg-card border border-border rounded-lg p-6">
             <h2 className="text-2xl font-bold mb-4">Controls</h2>
 
             {/* Connection Controls */}

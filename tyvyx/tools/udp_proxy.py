@@ -1,7 +1,7 @@
-"""UDP proxy / logger for capturing TEKY drone UDP traffic.
+"""UDP proxy / logger for capturing TYVYX drone UDP traffic.
 
 Usage:
-  python -m teky.tools.udp_proxy --listen-port 17099 --drone-ip 192.168.1.1 --drone-port 7099
+  python -m tyvyx.tools.udp_proxy --listen-port 17099 --drone-ip 192.168.1.1 --drone-port 7099
 
 How it works:
 - Listens on `--listen-port` for UDP packets from your controller/UI.

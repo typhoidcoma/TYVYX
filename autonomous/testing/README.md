@@ -1,6 +1,6 @@
 # Phase 1: Flight Control Validation & Calibration
 
-This directory contains tools for testing and calibrating the experimental flight controls of the TEKY drone.
+This directory contains tools for testing and calibrating the experimental flight controls of the TYVYX drone.
 
 ## 🎯 Goal
 
@@ -21,7 +21,7 @@ Validate that the reverse-engineered flight control commands work correctly and 
 ## 📋 Prerequisites
 
 1. **Drone Setup**:
-   - TEKY WiFi drone powered on
+   - TYVYX WiFi drone powered on
    - Connected to drone's WiFi network (HD-720P-*, HD-FPV-*, etc.)
    - Drone IP should be 192.168.1.1 (verify with `ping 192.168.1.1`)
 
@@ -33,7 +33,7 @@ Validate that the reverse-engineered flight control commands work correctly and 
 3. **Existing System Working**:
    - Test that basic connection works:
      ```bash
-     python -m teky.app
+     python -m tyvyx.app
      # Visit http://localhost:5000 and verify video feed + camera switching
      ```
 
@@ -243,7 +243,7 @@ flight_controls:
 - The experimental command format may need adjustment
 - Use packet sniffer to capture Android app commands:
   ```bash
-  python -m teky.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 30
+  python -m tyvyx.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 30
   ```
 - Compare captured packets with our commands
 
@@ -296,7 +296,7 @@ If you encounter issues:
 3. Try the original Flask app to verify basic functionality
 4. Consider using UDP proxy to inspect traffic:
    ```bash
-   python -m teky.tools.udp_proxy --listen-port 17099 --drone-ip 192.168.1.1
+   python -m tyvyx.tools.udp_proxy --listen-port 17099 --drone-ip 192.168.1.1
    ```
 
 ## ⚡ Quick Reference
@@ -312,10 +312,10 @@ python -m autonomous.testing.flight_control_test --mode calibrate
 python -m autonomous.testing.flight_control_test --mode test_throttle
 
 # Packet sniffing (for comparison)
-python -m teky.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 30
+python -m tyvyx.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 30
 
 # UDP proxy (for traffic analysis)
-python -m teky.tools.udp_proxy --listen-port 17099 --drone-ip 192.168.1.1
+python -m tyvyx.tools.udp_proxy --listen-port 17099 --drone-ip 192.168.1.1
 ```
 
 ---

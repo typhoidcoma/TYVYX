@@ -1,4 +1,4 @@
-from teky.app import app
+from tyvyx.app import app
 
 
 def test_home_route():

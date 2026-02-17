@@ -1,6 +1,6 @@
-# TEKY Drone Troubleshooting Guide
+# TYVYX Drone Troubleshooting Guide
 
-This guide covers common issues and solutions when working with the TEKY drone controller.
+This guide covers common issues and solutions when working with the TYVYX drone controller.
 
 ## Table of Contents
 
@@ -36,7 +36,7 @@ This guide covers common issues and solutions when working with the TEKY drone c
 
 5. **Run network diagnostics**:
    ```bash
-   python -m teky.network_diagnostics
+   python -m tyvyx.network_diagnostics
    ```
    Select option `1` to run all tests.
 
@@ -47,7 +47,7 @@ This guide covers common issues and solutions when working with the TEKY drone c
 
 7. **Try the original app first**: If problems persist, test with the original Flask app:
    ```bash
-   python -m teky.app
+   python -m tyvyx.app
    ```
    Visit http://localhost:5000 to verify basic connectivity.
 
@@ -137,7 +137,7 @@ This guide covers common issues and solutions when working with the TEKY drone c
 
 3. **Try starting video manually**: Use the original app first to verify video works:
    ```bash
-   python -m teky.app
+   python -m tyvyx.app
    ```
 
 4. **Verify RTSP stream**:
@@ -164,14 +164,14 @@ This guide covers common issues and solutions when working with the TEKY drone c
 **Solutions**:
 1. **Test basic connectivity first**:
    ```bash
-   python -m teky.app
+   python -m tyvyx.app
    ```
    Visit http://localhost:5000 and test camera switching. If that works, UDP connection is good.
 
 2. **Capture packets during real flight**:
    ```bash
    # Run packet sniffer while controlling from official Android app
-   python -m teky.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 30
+   python -m tyvyx.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 30
    ```
    Compare captured commands with your code.
 
@@ -380,7 +380,7 @@ Download latest from https://www.python.org/downloads/
 Use the built-in diagnostics tool:
 
 ```bash
-python -m teky.network_diagnostics
+python -m tyvyx.network_diagnostics
 ```
 
 **Available tests**:
@@ -424,7 +424,7 @@ If you've tried the solutions above and still have issues:
 
 2. **Run diagnostics**:
    ```bash
-   python -m teky.network_diagnostics
+   python -m tyvyx.network_diagnostics
    ```
 
 3. **Review error messages**: Error messages often contain helpful information
@@ -437,7 +437,7 @@ If you've tried the solutions above and still have issues:
 
 5. **Test with original Flask app**: Verify basic functionality:
    ```bash
-   python -m teky.app
+   python -m tyvyx.app
    ```
 
 6. **Capture packets**: Use Wireshark or the packet sniffer to analyze communication

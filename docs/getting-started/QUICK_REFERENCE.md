@@ -1,4 +1,4 @@
-# TEKY Drone Quick Reference Card
+# TYVYX Drone Quick Reference Card
 
 ## Network Details
 ```
@@ -89,9 +89,9 @@ python drone_controller_advanced.py
 
 ### Connect to Drone
 ```python
-from drone_controller import TEKYDroneController
+from drone_controller import TYVYXDroneController
 
-drone = TEKYDroneController()
+drone = TYVYXDroneController()
 if drone.connect():
     print("Connected!")
 ```
@@ -122,9 +122,9 @@ if drone.start_video_stream():
 ### Full Example
 ```python
 import cv2
-from drone_controller import TEKYDroneController
+from drone_controller import TYVYXDroneController
 
-drone = TEKYDroneController()
+drone = TYVYXDroneController()
 
 if drone.connect():
     if drone.start_video_stream():
@@ -212,7 +212,7 @@ sudo tcpdump -i wlan0 -n udp port 7099 -w drone_capture.pcap
 ## File Locations
 
 ```
-TEKY_Working/
+TYVYX_Working/
 ├── drone_controller.py              # Basic controller
 ├── drone_controller_advanced.py     # With flight controls
 ├── network_diagnostics.py           # Testing tool

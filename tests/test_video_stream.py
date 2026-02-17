@@ -1,4 +1,4 @@
-from teky.video_stream import OpenCVVideoStream
+from tyvyx.video_stream import OpenCVVideoStream
 
 
 def test_video_stream_start_stop():

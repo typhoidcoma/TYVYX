@@ -1,6 +1,6 @@
-# Contributing to TEKY Drone
+# Contributing to TYVYX Drone
 
-Thank you for your interest in contributing to the TEKY drone controller project! This document provides guidelines for contributing code, documentation, and discoveries.
+Thank you for your interest in contributing to the TYVYX drone controller project! This document provides guidelines for contributing code, documentation, and discoveries.
 
 ## Table of Contents
 
@@ -22,7 +22,7 @@ Before contributing, ensure you have:
 - Python 3.8 or higher installed
 - Node.js 16+ (for frontend contributions)
 - FFmpeg installed for video streaming
-- A TEKY WiFi drone for testing (recommended)
+- A TYVYX WiFi drone for testing (recommended)
 - Git for version control
 
 ### Initial Setup
@@ -31,8 +31,8 @@ Before contributing, ensure you have:
 
 2. **Clone your fork**:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/TEKY.git
-   cd TEKY
+   git clone https://github.com/YOUR_USERNAME/TYVYX.git
+   cd TYVYX
    ```
 
 3. **Set up Python environment**:
@@ -233,12 +233,12 @@ from typing import Optional
 import socket
 import time
 
-from teky.video_stream import VideoStream
+from tyvyx.video_stream import VideoStream
 
 
 class DroneController:
     """
-    Controls TEKY drone via UDP commands.
+    Controls TYVYX drone via UDP commands.
 
     Args:
         drone_ip: IP address of drone (default: 192.168.1.1)
@@ -319,7 +319,7 @@ Use **pytest** for testing:
 ```python
 # tests/test_drone_controller.py
 import pytest
-from teky.drone_controller import DroneController
+from tyvyx.drone_controller import DroneController
 
 
 def test_drone_controller_initialization():
@@ -341,7 +341,7 @@ Run tests:
 pytest tests/
 pytest tests/test_drone_controller.py  # Specific file
 pytest -v  # Verbose output
-pytest --cov=teky  # With coverage
+pytest --cov=tyvyx  # With coverage
 ```
 
 ### Integration Tests
@@ -389,7 +389,7 @@ When creating new files, include a module docstring:
 Module for PID controller implementation.
 
 This module provides PID (Proportional-Integral-Derivative) controllers
-for position and velocity control of the TEKY drone.
+for position and velocity control of the TYVYX drone.
 
 Example:
     >>> controller = PIDController(kp=1.0, ki=0.1, kd=0.05)
@@ -484,7 +484,7 @@ When sharing packet captures:
 
 1. Use the packet sniffer tool:
    ```bash
-   python -m teky.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 60
+   python -m tyvyx.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 60
    ```
 
 2. Save to `sniffs/` directory (gitignored)
@@ -539,7 +539,7 @@ All contributors will be:
 - Thanked in commit messages
 - Celebrated for protocol discoveries
 
-**Thank you for contributing to TEKY!** 🚁✨
+**Thank you for contributing to TYVYX!** 🚁✨
 
 ---
 

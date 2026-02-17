@@ -1,4 +1,4 @@
-"""Flask web front-end packaged under `teky`.
+"""Flask web front-end packaged under `tyvyx`.
 
 Provides a simple UI that shows a live MJPEG video feed and a dropdown
 of available WiFi networks. Users can select a network (the drone)
@@ -16,9 +16,9 @@ from typing import Optional, Tuple
 from .video_stream import OpenCVVideoStream
 try:
     # Prefer advanced controller when available
-    from .drone_controller_advanced import TEKYDroneControllerAdvanced as _PreferredController
+    from .drone_controller_advanced import TYVYXDroneControllerAdvanced as _PreferredController
 except Exception:
-    from .drone_controller import TEKYDroneController as _PreferredController
+    from .drone_controller import TYVYXDroneController as _PreferredController
 import shutil
 import subprocess
 import logging
@@ -39,7 +39,7 @@ _drone_controller = None
 
 
 # Config persistence
-_config_path = Path("teky_config.json")
+_config_path = Path("tyvyx_config.json")
 
 # Sniffer job tracking
 _sniff_jobs = {}
@@ -102,8 +102,8 @@ def get_drone_controller():
             _drone_controller = _PreferredController()
         except Exception:
             # last-resort fallback to basic controller class
-            from .drone_controller import TEKYDroneController
-            _drone_controller = TEKYDroneController()
+            from .drone_controller import TYVYXDroneController
+            _drone_controller = TYVYXDroneController()
 
         # apply persisted drone config if any
         try:
@@ -539,7 +539,7 @@ def sniff_run():
     out_path = _sniff_jobs_path / out_name
 
     # prepare arg list
-    args = ['python', '-m', 'teky.tools.packet_sniffer', '--duration', str(duration), '--out', str(out_path)]
+    args = ['python', '-m', 'tyvyx.tools.packet_sniffer', '--duration', str(duration), '--out', str(out_path)]
     if dst:
         args += ['--dst', str(dst)]
     if src:

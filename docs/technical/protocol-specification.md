@@ -1,6 +1,6 @@
-# TEKY Drone Protocol Specification
+# TYVYX Drone Protocol Specification
 
-This document provides a formal specification of the TEKY WiFi drone communication protocol, extracted from reverse engineering efforts.
+This document provides a formal specification of the TYVYX WiFi drone communication protocol, extracted from reverse engineering efforts.
 
 ## Table of Contents
 

@@ -1,10 +1,10 @@
-# TEKY Drone Documentation
+# TYVYX Drone Documentation
 
-Welcome to the TEKY Drone project documentation. This index provides navigation to all available documentation organized by purpose and audience.
+Welcome to the TYVYX Drone project documentation. This index provides navigation to all available documentation organized by purpose and audience.
 
 ## Getting Started
 
-New to TEKY? Start here:
+New to TYVYX? Start here:
 
 - **[Quick Start Guide](getting-started/README.md)** - First-time setup and installation
 - **[Quick Reference](getting-started/QUICK_REFERENCE.md)** - Command cheat sheet and shortcuts
@@ -30,7 +30,7 @@ Deep technical documentation:
 
 ## Contributing
 
-Want to contribute to TEKY?
+Want to contribute to TYVYX?
 
 - **[Contributing Guidelines](contributing/CONTRIBUTING.md)** - How to contribute code and documentation
 - **[Development Setup](contributing/DEVELOPMENT.md)** - Setting up your development environment

@@ -1,6 +1,6 @@
-# TEKY Drone System Architecture
+# TYVYX Drone System Architecture
 
-This document describes the overall architecture of the TEKY drone control system, including component relationships, data flow, and technology stack.
+This document describes the overall architecture of the TYVYX drone control system, including component relationships, data flow, and technology stack.
 
 ## Table of Contents
 
@@ -16,7 +16,7 @@ This document describes the overall architecture of the TEKY drone control syste
 
 ## System Overview
 
-The TEKY drone control system is a multi-layered Python and TypeScript application that interfaces with WiFi-enabled drones using UDP commands and RTSP video streaming.
+The TYVYX drone control system is a multi-layered Python and TypeScript application that interfaces with WiFi-enabled drones using UDP commands and RTSP video streaming.
 
 ### High-Level Architecture
 
@@ -52,7 +52,7 @@ The TEKY drone control system is a multi-layered Python and TypeScript applicati
 ┌─────────────────────────────────────────────────────────────┐
 │                    Core Control Layer                        │
 │  ┌────────────────────────────────────────────────────┐     │
-│  │              TEKY Package (teky/)                  │     │
+│  │              TYVYX Package (tyvyx/)                  │     │
 │  │  ┌──────────────┐  ┌────────────┐  ┌───────────┐  │     │
 │  │  │ Controllers  │  │ Video      │  │ Network   │  │     │
 │  │  │              │  │ Stream     │  │ Diag      │  │     │
@@ -63,7 +63,7 @@ The TEKY drone control system is a multi-layered Python and TypeScript applicati
                     │ UDP (7099) / RTSP (7070)
                     ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                     TEKY WiFi Drone                          │
+│                     TYVYX WiFi Drone                          │
 │  - UDP Command Reception (port 7099)                        │
 │  - RTSP Video Streaming (port 7070)                         │
 │  - HTTP File Server (port 80)                               │
@@ -81,7 +81,7 @@ The TEKY drone control system is a multi-layered Python and TypeScript applicati
 
 **Components**:
 - **React Frontend** ([frontend/](../../frontend/)) - Modern web UI (Phase 2)
-- **Flask Web UI** ([teky/app.py](../../teky/app.py)) - Legacy web interface
+- **Flask Web UI** ([tyvyx/app.py](../../tyvyx/app.py)) - Legacy web interface
 
 **Technologies**: React, TypeScript, Tailwind CSS, Flask, HTML/CSS
 
@@ -94,7 +94,7 @@ The TEKY drone control system is a multi-layered Python and TypeScript applicati
   - REST endpoints for drone control
   - WebSocket for real-time telemetry
   - MJPEG video proxy
-- **Flask App** ([teky/app.py](../../teky/app.py)) - Legacy synchronous API
+- **Flask App** ([tyvyx/app.py](../../tyvyx/app.py)) - Legacy synchronous API
 
 **Technologies**: FastAPI, Flask, Uvicorn, WebSockets
 
@@ -116,9 +116,9 @@ The TEKY drone control system is a multi-layered Python and TypeScript applicati
 **Purpose**: Direct communication with drone hardware
 
 **Components**:
-- **Drone Controllers** ([teky/drone_controller*.py](../../teky/)) - UDP command transmission
-- **Video Stream** ([teky/video_stream.py](../../teky/video_stream.py)) - RTSP video capture and processing
-- **Network Diagnostics** ([teky/network_diagnostics.py](../../teky/network_diagnostics.py)) - Connection testing
+- **Drone Controllers** ([tyvyx/drone_controller*.py](../../tyvyx/)) - UDP command transmission
+- **Video Stream** ([tyvyx/video_stream.py](../../tyvyx/video_stream.py)) - RTSP video capture and processing
+- **Network Diagnostics** ([tyvyx/network_diagnostics.py](../../tyvyx/network_diagnostics.py)) - Connection testing
 
 **Technologies**: Python, OpenCV, sockets, threading
 
@@ -136,7 +136,7 @@ The TEKY drone control system is a multi-layered Python and TypeScript applicati
 
 ## Component Details
 
-### Core Components (`teky/` package)
+### Core Components (`tyvyx/` package)
 
 #### 1. drone_controller.py
 **Purpose**: Basic drone control (video + simple commands)
@@ -228,7 +228,7 @@ api/
 **Purpose**: High-level drone control abstraction
 
 **Key Class**: `DroneService`
-- Wraps `TEKYDroneControllerAdvanced`
+- Wraps `TYVYXDroneControllerAdvanced`
 - Provides async interface
 - Manages connection lifecycle
 - Streams telemetry data
@@ -296,17 +296,17 @@ FastAPI Backend (routes/drone.py)
         ↓
 Drone Service (drone_service.py)
         ↓
-TEKY Controller (drone_controller_advanced.py)
+TYVYX Controller (drone_controller_advanced.py)
         ↓ UDP Packet (7099)
-TEKY Drone Hardware
+TYVYX Drone Hardware
 ```
 
 ### 2. Video Flow (Drone → User)
 
 ```
-TEKY Drone Hardware
+TYVYX Drone Hardware
         ↓ RTSP Stream (7070)
-TEKY Video Stream (video_stream.py)
+TYVYX Video Stream (video_stream.py)
         ↓ OpenCV Processing
 FastAPI Video Route (routes/video.py)
         ↓ MJPEG over HTTP
@@ -318,9 +318,9 @@ User Display
 ### 3. Telemetry Flow (Drone → User)
 
 ```
-TEKY Drone Hardware
+TYVYX Drone Hardware
         ↓ UDP Responses (7099)
-TEKY Controller (parsing responses)
+TYVYX Controller (parsing responses)
         ↓
 Drone Service (telemetry collection)
         ↓ WebSocket Message
@@ -336,11 +336,11 @@ User Interface (Status Display)
 ```
 Timer Thread (1 Hz)
         ↓
-TEKY Controller
+TYVYX Controller
         ↓ UDP [0x01, 0x01] every 1 second
-TEKY Drone Hardware
+TYVYX Drone Hardware
         ↓ UDP Response
-TEKY Controller (updates device status)
+TYVYX Controller (updates device status)
 ```
 
 ---
@@ -393,9 +393,9 @@ TEKY Controller (updates device status)
 ## Directory Structure
 
 ```
-TEKY/
+TYVYX/
 │
-├── teky/                    # Core drone control package
+├── tyvyx/                    # Core drone control package
 │   ├── __init__.py
 │   ├── drone_controller.py          # Basic controller
 │   ├── drone_controller_advanced.py # Advanced with flight controls
@@ -478,7 +478,7 @@ TEKY/
 
 ## Development Phases
 
-The TEKY project follows a phased development approach:
+The TYVYX project follows a phased development approach:
 
 ### Phase 1: Flight Control Calibration ✅
 **Status**: Complete
@@ -574,7 +574,7 @@ The TEKY project follows a phased development approach:
 ## Design Patterns and Principles
 
 ### 1. Separation of Concerns
-- **Core layer** (`teky/`) handles hardware communication
+- **Core layer** (`tyvyx/`) handles hardware communication
 - **Services layer** (`autonomous/services/`) provides business logic
 - **API layer** (`autonomous/api/`) exposes interfaces
 - **UI layer** (`frontend/`) handles presentation

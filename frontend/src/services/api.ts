@@ -1,5 +1,5 @@
 /**
- * API Client for TEKY Drone Backend
+ * API Client for TYVYX Drone Backend
  */
 
 import axios from 'axios';

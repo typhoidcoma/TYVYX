@@ -32,7 +32,7 @@ Where CMD_ID = 0x50 and each value is 0-255 (128 = neutral).
 ### Prerequisites
 
 - Python 3.8+ installed
-- TEKY WiFi drone powered on
+- TYVYX WiFi drone powered on
 - Computer connected to drone WiFi
 - Open testing area (safety first!)
 
@@ -96,7 +96,7 @@ Phase 1 setup provides the foundation for flight control testing and calibration
 ### Project Structure
 
 ```
-TEKY/
+TYVYX/
 ├── autonomous/                    # Autonomous system package
 │   ├── api/                      # FastAPI backend (Phase 2)
 │   ├── localization/             # Position estimation (Phase 3)
@@ -412,14 +412,14 @@ python -c "from autonomous.navigation.pid_controller import PIDController; print
 
 ```bash
 # Test basic connectivity with existing system
-python -m teky.app
+python -m tyvyx.app
 # Visit http://localhost:5000 - does video work?
 
 # Check WiFi connection
 ping 192.168.1.1
 
 # Run network diagnostics
-python -m teky.network_diagnostics
+python -m tyvyx.network_diagnostics
 ```
 
 ### Drone Doesn't Respond to Commands
@@ -429,14 +429,14 @@ python -m teky.network_diagnostics
 **Solutions**:
 1. **Test basic connectivity first**:
    ```bash
-   python -m teky.app
+   python -m tyvyx.app
    ```
    Visit http://localhost:5000 and test camera switching. If that works, UDP connection is good.
 
 2. **Capture packets during real flight**:
    ```bash
    # Run packet sniffer while controlling from official Android app
-   python -m teky.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 30
+   python -m tyvyx.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 30
    ```
    Compare captured commands with our implementation.
 
@@ -456,7 +456,7 @@ python -m teky.network_diagnostics
 
 ```bash
 # Use packet sniffer while controlling from Android app
-python -m teky.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 30
+python -m tyvyx.tools.packet_sniffer --dst 192.168.1.1 --port 7099 --duration 30
 
 # Compare with our commands
 ```
@@ -518,7 +518,7 @@ After completing Phase 1, you should have:
 Once Phase 1 is complete, we'll build:
 
 1. **FastAPI Backend**
-   - Wraps your existing `TEKYDroneControllerAdvanced`
+   - Wraps your existing `TYVYXDroneControllerAdvanced`
    - REST API for drone control
    - WebSocket for real-time telemetry
 
@@ -552,14 +552,14 @@ See [Phase 2 Documentation](phase2-webapp.md) for details.
 
 - **PID Controller**: [autonomous/navigation/pid_controller.py](../../autonomous/navigation/pid_controller.py)
 - **Test Harness**: [autonomous/testing/flight_control_test.py](../../autonomous/testing/flight_control_test.py)
-- **Existing Controller**: [teky/drone_controller_advanced.py](../../teky/drone_controller_advanced.py)
+- **Existing Controller**: [tyvyx/drone_controller_advanced.py](../../tyvyx/drone_controller_advanced.py)
 
 ### Existing Tools (Still Available)
 
-- **Flask Web App**: `python -m teky.app` (http://localhost:5000)
-- **Packet Sniffer**: `python -m teky.tools.packet_sniffer`
-- **UDP Proxy**: `python -m teky.tools.udp_proxy`
-- **Network Diagnostics**: `python -m teky.network_diagnostics`
+- **Flask Web App**: `python -m tyvyx.app` (http://localhost:5000)
+- **Packet Sniffer**: `python -m tyvyx.tools.packet_sniffer`
+- **UDP Proxy**: `python -m tyvyx.tools.udp_proxy`
+- **Network Diagnostics**: `python -m tyvyx.network_diagnostics`
 
 ---
 

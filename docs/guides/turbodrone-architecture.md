@@ -1,6 +1,6 @@
 # Turbodrone Architecture Integration
 
-This document explains the integration of turbodrone's proven architecture into the TEKY autonomous drone system.
+This document explains the integration of turbodrone's proven architecture into the TYVYX autonomous drone system.
 
 ## What is Turbodrone?
 
@@ -14,7 +14,7 @@ Turbodrone is a fully reverse-engineered control system for budget toy drones ($
 
 ## What We Integrated
 
-While turbodrone controls **different drones** than TEKY, its **architecture patterns** are excellent and have been adapted for our autonomous system.
+While turbodrone controls **different drones** than TYVYX, its **architecture patterns** are excellent and have been adapted for our autonomous system.
 
 ### Core Components Integrated
 
@@ -85,24 +85,24 @@ class BaseRCModel(ABC):
     def build_control_packet() -> bytes  # Implement per drone
 ```
 
-#### 3. TEKY RC Model
+#### 3. TYVYX RC Model
 **Files:**
-- [`autonomous/models/teky_rc.py`](autonomous/models/teky_rc.py)
+- [`autonomous/models/tyvyx_rc.py`](autonomous/models/tyvyx_rc.py)
 
 **What it does:**
-- Implements BaseRCModel specifically for TEKY drone
+- Implements BaseRCModel specifically for TYVYX drone
 - Builds experimental flight control packets: `[0x50, throttle, yaw, pitch, roll, checksum]`
 - Also handles camera switch and screen mode commands
 
 **Usage:**
 ```python
-from autonomous.models import TEKYRCModel, create_teky_rc, create_autonomous_teky_rc
+from autonomous.models import TYVYXRCModel, create_tyvyx_rc, create_autonomous_tyvyx_rc
 
 # Create with default settings
-rc_model = create_teky_rc(profile="normal")
+rc_model = create_tyvyx_rc(profile="normal")
 
 # Or create for autonomous control (linear response)
-rc_model = create_autonomous_teky_rc()
+rc_model = create_autonomous_tyvyx_rc()
 
 # Set controls (normalized -1.0 to +1.0)
 rc_model.set_normalized_controls(
@@ -124,7 +124,7 @@ rc_model.land()
 rc_model.stop()  # Emergency stop + reset controls
 ```
 
-**TEKY Protocol (Experimental):**
+**TYVYX Protocol (Experimental):**
 ```python
 # Flight control packet (6 bytes)
 [CMD_ID, throttle, yaw, pitch, roll, checksum]
@@ -153,11 +153,11 @@ SCREEN_2 = [0x09, 0x02]
 
 **Usage (Async):**
 ```python
-from autonomous.models import create_teky_rc
+from autonomous.models import create_tyvyx_rc
 from autonomous.services import FlightController
 
 # Create RC model
-rc_model = create_teky_rc(profile="normal")
+rc_model = create_tyvyx_rc(profile="normal")
 
 # Create flight controller
 controller = FlightController(
@@ -209,7 +209,7 @@ controller.disconnect()
               │ uses
               ▼
 ┌─────────────────────────────────────┐
-│   TEKYRCModel (protocol-specific)   │  ← Model layer
+│   TYVYXRCModel (protocol-specific)   │  ← Model layer
 │   - Builds packets                  │
 │   - Protocol constants              │
 │   - Command flags                   │
@@ -242,15 +242,15 @@ controller.disconnect()
 4. **Proven** - Architecture based on working turbodrone implementation
 5. **Autonomous-ready** - Linear profile for PID control
 
-## Integration with Existing TEKY Code
+## Integration with Existing TYVYX Code
 
 The new architecture **complements** rather than replaces existing code:
 
 **Existing (Keep):**
-- `teky/drone_controller.py` - Original implementation (fallback)
-- `teky/drone_controller_advanced.py` - Flight controller class
-- `teky/video_stream.py` - RTSP video streaming
-- `teky/app.py` - Flask web interface
+- `tyvyx/drone_controller.py` - Original implementation (fallback)
+- `tyvyx/drone_controller_advanced.py` - Flight controller class
+- `tyvyx/video_stream.py` - RTSP video streaming
+- `tyvyx/app.py` - Flask web interface
 
 **New (Turbodrone-inspired):**
 - `autonomous/models/` - Control models and profiles
@@ -261,16 +261,16 @@ The new architecture **complements** rather than replaces existing code:
 **How they work together:**
 ```python
 # Option 1: Use new architecture directly
-from autonomous.models import create_teky_rc
+from autonomous.models import create_tyvyx_rc
 from autonomous.services import FlightControllerSync
 
-rc_model = create_teky_rc()
+rc_model = create_tyvyx_rc()
 controller = FlightControllerSync(rc_model)
 controller.start()
 
-# Option 2: Wrap existing TEKYDroneControllerAdvanced
-from teky.drone_controller_advanced import TEKYDroneControllerAdvanced
-existing_controller = TEKYDroneControllerAdvanced()
+# Option 2: Wrap existing TYVYXDroneControllerAdvanced
+from tyvyx.drone_controller_advanced import TYVYXDroneControllerAdvanced
+existing_controller = TYVYXDroneControllerAdvanced()
 # Use FlightController's methods but with existing controller
 ```
 
@@ -285,7 +285,7 @@ self.drone.flight_controller.throttle = 150  # Direct value
 
 **After (profile-based control):**
 ```python
-rc_model = create_teky_rc(profile="normal")
+rc_model = create_tyvyx_rc(profile="normal")
 rc_model.set_normalized_controls(throttle=0.4)  # 40% throttle
 rc_model.update(dt=0.0125)  # Smooth transition
 packet = rc_model.build_control_packet()
@@ -308,10 +308,10 @@ flight_controls:
 
 **Load into RC model:**
 ```python
-from autonomous.models import TEKYRCModel
+from autonomous.models import TYVYXRCModel
 
 # Create from calibration
-rc_model = TEKYRCModel.from_calibration(
+rc_model = TYVYXRCModel.from_calibration(
     calibration_data=config['flight_controls'],
     profile_name="normal"
 )
@@ -324,10 +324,10 @@ The autonomous profile is designed for PID control:
 **PID → Velocity → Control Values:**
 ```python
 from autonomous.navigation import DronePositionController
-from autonomous.models import create_autonomous_teky_rc
+from autonomous.models import create_autonomous_tyvyx_rc
 
 # Create autonomous RC model (linear response)
-rc_model = create_autonomous_teky_rc()
+rc_model = create_autonomous_tyvyx_rc()
 
 # Create PID controller
 pid = DronePositionController()
@@ -347,13 +347,13 @@ rc_model.set_normalized_controls(
 # Send to drone (80 Hz loop handles this)
 ```
 
-## Comparison: Turbodrone vs TEKY
+## Comparison: Turbodrone vs TYVYX
 
-| Aspect | Turbodrone (S20/V88/etc) | TEKY | Integration |
+| Aspect | Turbodrone (S20/V88/etc) | TYVYX | Integration |
 |--------|--------------------------|------|-------------|
 | **Protocol** | S2x, WiFi UAV (fully known) | Experimental (needs validation) | Architecture adapted |
 | **Control Port** | 8080 (S2x), 8800 (WiFi UAV) | 7099 | Configurable |
-| **Packet Format** | 20-byte (S2x), 85-byte (WiFi UAV) | 6-byte experimental | TEKY-specific impl |
+| **Packet Format** | 20-byte (S2x), 85-byte (WiFi UAV) | 6-byte experimental | TYVYX-specific impl |
 | **Update Rate** | 80 Hz | 80 Hz (adopted) | ✅ Same |
 | **Profiles** | normal/precise/aggressive | Adopted | ✅ Integrated |
 | **Video** | JPEG reassembly | RTSP streaming | Keep existing |
@@ -368,7 +368,7 @@ autonomous/
 │   ├── __init__.py          ✅ Created
 │   ├── control_profile.py   ✅ Created - Profiles and stick ranges
 │   ├── base_rc.py           ✅ Created - Abstract RC model
-│   └── teky_rc.py           ✅ Created - TEKY-specific implementation
+│   └── tyvyx_rc.py           ✅ Created - TYVYX-specific implementation
 └── services/
     ├── __init__.py          ✅ Created
     └── flight_controller.py ✅ Created - 80 Hz control loop
@@ -376,7 +376,7 @@ autonomous/
 
 ### Existing Files (Unchanged)
 ```
-teky/
+tyvyx/
 ├── drone_controller.py              ← Keep as-is
 ├── drone_controller_advanced.py     ← Keep as-is
 └── video_stream.py                  ← Keep as-is
@@ -385,7 +385,7 @@ teky/
 ## Next Steps
 
 1. **Phase 1 Testing** - Use new architecture in flight control calibration
-2. **Validate Protocol** - Confirm experimental TEKY commands work
+2. **Validate Protocol** - Confirm experimental TYVYX commands work
 3. **Calibration Integration** - Load calibration data into profiles
 4. **PID Integration** - Connect autonomous profile to position controller
 5. **FastAPI Migration** - Use FlightController in new backend
@@ -394,10 +394,10 @@ teky/
 
 **Create RC model:**
 ```python
-from autonomous.models import create_teky_rc, create_autonomous_teky_rc
+from autonomous.models import create_tyvyx_rc, create_autonomous_tyvyx_rc
 
-rc_model = create_teky_rc("normal")         # Manual control
-rc_model = create_autonomous_teky_rc()      # PID control
+rc_model = create_tyvyx_rc("normal")         # Manual control
+rc_model = create_autonomous_tyvyx_rc()      # PID control
 ```
 
 **Control with normalized values:**
@@ -430,4 +430,4 @@ print(profile.expo)  # 0.3
 
 ---
 
-**The turbodrone architecture provides a solid, proven foundation for the TEKY autonomous system while maintaining compatibility with existing code!** 🚁✨
+**The turbodrone architecture provides a solid, proven foundation for the TYVYX autonomous system while maintaining compatibility with existing code!** 🚁✨

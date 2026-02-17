@@ -4,6 +4,7 @@ This is the packaged copy of `drone_controller_advanced.py`. Imports
 are package-relative so it can be used inside `tyvyx`.
 """
 
+import sys
 import cv2
 import socket
 import threading
@@ -256,6 +257,24 @@ class TYVYXDroneControllerAdvanced:
 
 			self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 			self.udp_socket.settimeout(2.0)
+
+			# Windows: prevent ICMP port-unreachable from tainting the socket.
+			# Without this, a single ICMP error makes all subsequent sendto()
+			# fail with WinError 10022 (WSAEINVAL).
+			# Python's socket.ioctl() doesn't support SIO_UDP_CONNRESET,
+			# so we call WSAIoctl via ctypes.
+			if sys.platform == "win32":
+				import ctypes
+				SIO_UDP_CONNRESET = 0x9800000C
+				ret = ctypes.c_ulong(0)
+				false = b"\x00\x00\x00\x00"
+				ctypes.windll.ws2_32.WSAIoctl(
+					self.udp_socket.fileno(),
+					SIO_UDP_CONNRESET,
+					false, len(false),
+					None, 0,
+					ctypes.byref(ret), None, None,
+				)
 
 			self.send_command(self.CMD_HEARTBEAT)
 

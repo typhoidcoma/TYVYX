@@ -28,6 +28,7 @@ from tyvyx.protocols.raw_udp_sniffer import RawUdpSnifferProtocol
 from tyvyx.utils.dropping_queue import DroppingQueue
 from tyvyx.frame_hub import FrameHub
 from autonomous.services.position_service import position_service
+from autonomous.services.go2rtc_service import go2rtc_service
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +193,15 @@ class DroneService:
             self._video_streaming = True
             self._video_protocol = protocol
             logger.info(f"Video stream started (protocol={protocol})")
+
+            # Register MJPEG feed with go2rtc for WebRTC transcoding
+            if go2rtc_service.is_running():
+                mjpeg_url = "ffmpeg:http://127.0.0.1:8000/api/video/feed#video=h264#hardware"
+                if await go2rtc_service.register_stream("drone", mjpeg_url):
+                    logger.info("Registered MJPEG stream with go2rtc for WebRTC")
+                else:
+                    logger.warning("Failed to register stream with go2rtc — WebRTC unavailable")
+
             return {"success": True, "message": f"Video started (protocol={protocol})"}
 
         except Exception as e:
@@ -243,6 +253,10 @@ class DroneService:
             if self._video_receiver:
                 self._video_receiver.stop()
                 self._video_receiver = None
+
+            # Remove stream from go2rtc
+            if go2rtc_service.is_running():
+                await go2rtc_service.remove_stream("drone")
 
             self._video_streaming = False
             self._video_protocol = None

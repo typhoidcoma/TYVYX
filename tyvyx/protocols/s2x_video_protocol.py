@@ -1,3 +1,4 @@
+import sys
 import socket
 import threading
 import queue
@@ -46,10 +47,14 @@ class S2xVideoProtocolAdapter(BaseVideoProtocolAdapter):
 
     # ────────── BaseVideoProtocolAdapter ────────── #
     def send_start_command(self) -> None:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.sendto(self._start_command, (self.drone_ip, self.control_port))
-        if self._debug:
-            print(f"[s2x] Start command sent ({self._start_command.hex(' ')})")
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.sendto(self._start_command, (self.drone_ip, self.control_port))
+            if self._debug:
+                print(f"[s2x] Start command sent ({self._start_command.hex(' ')})")
+        except OSError as e:
+            if self._debug:
+                print(f"[s2x] Start command failed: {e}")
 
     def start_keepalive(self, interval: float = 2.0) -> None:
         if self._keepalive_thread is None:
@@ -72,6 +77,18 @@ class S2xVideoProtocolAdapter(BaseVideoProtocolAdapter):
     def create_receiver_socket(self) -> socket.socket:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if sys.platform == "win32":
+            import ctypes
+            SIO_UDP_CONNRESET = 0x9800000C
+            ret = ctypes.c_ulong(0)
+            false = b"\x00\x00\x00\x00"
+            ctypes.windll.ws2_32.WSAIoctl(
+                sock.fileno(),
+                SIO_UDP_CONNRESET,
+                false, len(false),
+                None, 0,
+                ctypes.byref(ret), None, None,
+            )
         sock.bind(("0.0.0.0", self.video_port))
         sock.settimeout(1.0)
         return sock
@@ -102,19 +119,36 @@ class S2xVideoProtocolAdapter(BaseVideoProtocolAdapter):
 
         def _rx_loop() -> None:
             sock = self._sock
+            pkt_count = 0
+            frame_count = 0
+            reject_count = 0
             while self._running.is_set():
                 try:
                     payload = self.recv_from_socket(sock)
                     if not payload:
                         continue
+                    pkt_count += 1
                     with self._pkt_lock:
                         self._pkt_buffer.append(payload)
+
+                    if self._debug and pkt_count <= 5:
+                        print(f"[s2x] pkt #{pkt_count}: {len(payload)} bytes, "
+                              f"header={payload[:8].hex(' ')}")
+
                     frame = self.handle_payload(payload)
                     if frame is not None:
+                        frame_count += 1
                         try:
                             self._frame_q.put(frame, timeout=0.2)
                         except queue.Full:
                             pass
+                    else:
+                        reject_count += 1
+
+                    if self._debug and pkt_count % 200 == 0:
+                        print(f"[s2x] stats: {pkt_count} pkts, "
+                              f"{frame_count} frames, "
+                              f"{reject_count} rejected")
                 except OSError:
                     break
                 except Exception:

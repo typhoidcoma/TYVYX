@@ -43,7 +43,17 @@
       "Bash(npx tsc:*)",
       "Bash(echo:*)",
       "Bash(xxd:*)",
-      "Bash(.venv/Scripts/pip install:*)"
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(pip:*)",
+      "Bash(node --version:*)",
+      "Bash(npm:*)",
+      "Bash(ping:*)",
+      "Bash(where:*)",
+      "Bash(winget list:*)",
+      "Bash(choco list:*)",
+      "Bash(winget install:*)",
+      "Bash(export PATH=\"$PATH:/c/Users/tesse/AppData/Local/Microsoft/WinGet/Links\")",
+      "Bash(ffmpeg:*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\tesse\\.claude\\projects\\i--Projects-Drones-TEKY\\memory"

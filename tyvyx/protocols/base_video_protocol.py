@@ -45,7 +45,7 @@ class BaseVideoProtocolAdapter(ABC):
     # ────────── transport helpers ────────── #
     def recv_from_socket(self, sock) -> Optional[bytes]:
         try:
-            pkt, _ = sock.recvfrom(4096)
+            pkt, _ = sock.recvfrom(65535)
             return pkt
         except socket.timeout:
             return None

@@ -126,8 +126,8 @@ async def send_command(request: CommandRequest):
         params = request.params or {}
 
         if action == "start_video":
-            success = await drone_service.start_video()
-            return {"success": success, "message": "Video started" if success else "Failed to start video"}
+            result = await drone_service.start_video()
+            return {"success": result["success"], "message": result["message"]}
 
         elif action == "stop_video":
             await drone_service.stop_video()

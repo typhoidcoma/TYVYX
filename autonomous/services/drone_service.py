@@ -119,25 +119,23 @@ class DroneService:
         except Exception as e:
             logger.error(f"Error disconnecting: {e}")
 
-    async def start_video(self) -> bool:
+    async def start_video(self) -> dict:
         """
-        Start video stream
+        Start video stream.
 
         Returns:
-            True if video started successfully
+            dict with 'success' bool and 'message' str
         """
         if not self._connected or not self.drone:
-            logger.error("Not connected to drone")
-            return False
+            return {"success": False, "message": "Not connected to drone — connect first"}
 
         if self._video_streaming:
-            logger.warning("Video already streaming")
-            return True
+            return {"success": True, "message": "Video already streaming"}
 
         try:
             logger.info("Starting video stream...")
 
-            # Start video in thread pool
+            # Start video in thread pool (blocks while RTSP connects)
             loop = asyncio.get_event_loop()
             success = await loop.run_in_executor(None, self.drone.start_video_stream)
 
@@ -145,14 +143,17 @@ class DroneService:
                 self._video_streaming = True
                 self.video_stream = self.drone.video_stream
                 logger.info("✅ Video stream started")
-                return True
+                return {"success": True, "message": "Video started"}
             else:
                 logger.error("❌ Failed to start video stream")
-                return False
+                return {
+                    "success": False,
+                    "message": "Could not open RTSP stream — is the drone powered on and WiFi connected?",
+                }
 
         except Exception as e:
             logger.error(f"Error starting video: {e}", exc_info=True)
-            return False
+            return {"success": False, "message": f"Video error: {e}"}
 
     async def stop_video(self):
         """Stop video stream"""

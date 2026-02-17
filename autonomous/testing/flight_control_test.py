@@ -1,13 +1,13 @@
 """
 Flight Control Test Harness
 
-This script systematically tests the experimental flight control commands
+This script systematically tests flight control commands
 to validate that they work correctly and to build calibration data.
 
-The experimental flight command format is:
-[CMD_ID, throttle, yaw, pitch, roll, checksum]
+The flight command format is (E88Pro-proven):
+[0x03, 0x66, roll, pitch, throttle, yaw, flags, xor_checksum, 0x99]
 
-Where CMD_ID = 0x50 and values are 0-255 with 128 as neutral.
+Where values are 50-200 with 128 (0x80) as neutral.
 
 Usage:
     python -m autonomous.testing.flight_control_test --mode interactive
@@ -49,10 +49,10 @@ class FlightControlTester:
         self.test_log: List[Dict] = []
         self.is_connected = False
 
-        # Test parameters
+        # Test parameters (E88Pro-proven range)
         self.neutral_value = 128
-        self.min_value = 0
-        self.max_value = 255
+        self.min_value = 50
+        self.max_value = 200
 
     def connect(self) -> bool:
         """Connect to drone"""

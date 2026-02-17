@@ -11,260 +11,214 @@ function App() {
   const [status, setStatus] = useState<DroneStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
-  const [videoStarted, setVideoStarted] = useState(false)
+  const [videoActive, setVideoActive] = useState(false)
 
-  // Position store (Phase 3)
   const { updatePosition } = usePositionStore()
 
-  // Poll status
+  // Poll drone status every 2 s
   useEffect(() => {
-    const pollStatus = async () => {
+    const poll = async () => {
       try {
-        const statusData = await droneApi.getStatus()
-        setStatus(statusData)
-      } catch (error) {
-        console.error('Error polling status:', error)
+        setStatus(await droneApi.getStatus())
+      } catch {
+        // backend unreachable — leave last status
       }
     }
-
-    // Poll every 2 seconds
-    const interval = setInterval(pollStatus, 2000)
-    pollStatus() // Initial poll
-
-    return () => clearInterval(interval)
+    const id = setInterval(poll, 2000)
+    poll()
+    return () => clearInterval(id)
   }, [])
 
-  // WebSocket for telemetry
+  // WebSocket telemetry when connected
   useEffect(() => {
-    let ws: WebSocket | null = null
-
-    if (status?.connected) {
-      ws = createWebSocket((data) => {
-        console.log('Telemetry:', data)
-
-        // Update position store if position data is present (Phase 3)
-        // WebSocket message structure: { type: "telemetry", data: { ..., position: ... } }
-        if (data?.data?.position) {
-          updatePosition(data.data.position)
-        }
-      })
-    }
-
-    return () => {
-      if (ws) {
-        ws.close()
-      }
-    }
+    if (!status?.connected) return
+    const ws = createWebSocket((data) => {
+      if (data?.data?.position) updatePosition(data.data.position)
+    })
+    return () => ws.close()
   }, [status?.connected, updatePosition])
 
-  const handleConnect = async () => {
+  const withLoading = async (fn: () => Promise<{ message?: string } | void>) => {
     setLoading(true)
     setMessage('')
     try {
-      const result = await droneApi.connect()
-      setMessage(result.message)
-    } catch (error) {
-      setMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
+      const result = await fn()
+      if (result && 'message' in result && result.message) setMessage(result.message)
+    } catch (err) {
+      setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`)
     }
     setLoading(false)
   }
 
-  const handleDisconnect = async () => {
-    setLoading(true)
-    setMessage('')
-    try {
-      const result = await droneApi.disconnect()
-      setMessage(result.message)
-      setVideoStarted(false)
-    } catch (error) {
-      setMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    setLoading(false)
-  }
+  const handleConnect = () => withLoading(async () => {
+    const r = await droneApi.connect()
+    return r
+  })
 
-  const handleStartVideo = async () => {
-    setLoading(true)
-    setMessage('')
-    try {
-      const result = await droneApi.startVideo()
-      setMessage(result.message)
-      if (result.success) {
-        setVideoStarted(true)
-      }
-    } catch (error) {
-      setMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    setLoading(false)
-  }
+  const handleDisconnect = () => withLoading(async () => {
+    const r = await droneApi.disconnect()
+    setVideoActive(false)
+    return r
+  })
 
-  const handleStopVideo = async () => {
-    setLoading(true)
-    setMessage('')
-    try {
-      const result = await droneApi.stopVideo()
-      setMessage(result.message)
-      setVideoStarted(false)
-    } catch (error) {
-      setMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
+  const handleVideoToggle = () => withLoading(async () => {
+    if (videoActive || status?.video_streaming) {
+      await droneApi.stopVideo()
+      setVideoActive(false)
+      return { message: 'Video stopped' }
+    } else {
+      const r = await droneApi.startVideo()
+      if (r.success) setVideoActive(true)
+      return r
     }
-    setLoading(false)
-  }
+  })
 
-  const handleSwitchCamera = async (camera: number) => {
-    setLoading(true)
-    setMessage('')
-    try {
-      const result = await droneApi.switchCamera(camera)
-      setMessage(result.message)
-    } catch (error) {
-      setMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    setLoading(false)
-  }
+  const handleSwitchCamera = (cam: number) => withLoading(() => droneApi.switchCamera(cam))
+
+  const isStreaming = videoActive && status?.video_streaming
 
   return (
     <div className="min-h-screen bg-base text-heading p-6">
       <div className="max-w-7xl mx-auto">
+
         {/* Header */}
-        <header className="mb-8 flex items-center gap-6">
-          <img src="/tyvyx_logo.svg" alt="TYVYX" className="h-16 w-auto" />
+        <header className="mb-6 flex items-center gap-5">
+          <img src="/tyvyx_logo.svg" alt="TYVYX" className="h-14 w-auto" />
           <div>
-            <h1 className="text-4xl font-bold mb-2">Drone Control</h1>
-            <p className="text-muted">Phase 3: Position Tracking with Optical Flow</p>
+            <h1 className="text-3xl font-bold">Drone Control</h1>
+            <p className="text-muted text-sm">Phase 3: Position Tracking</p>
           </div>
         </header>
 
-        {/* Status Bar */}
-        <div className="bg-card border border-border rounded-lg p-4 mb-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="text-muted mr-2">Status:</span>
-              <span className={`font-semibold ${status?.connected ? 'text-green-400' : 'text-red-400'}`}>
-                {status?.connected ? '● Connected' : '○ Disconnected'}
-              </span>
-            </div>
-            <div>
-              <span className="text-muted mr-2">Video:</span>
-              <span className={`font-semibold ${status?.video_streaming ? 'text-green-400' : 'text-dim'}`}>
-                {status?.video_streaming ? '● Streaming' : '○ Stopped'}
-              </span>
-            </div>
-          </div>
-        </div>
-
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Video Feed */}
-          <div className="bg-card border border-border rounded-lg p-6">
-            <h2 className="text-2xl font-bold mb-4">Video Feed</h2>
-            <div className="bg-black rounded-lg aspect-video flex items-center justify-center">
-              {videoStarted && status?.video_streaming ? (
+
+          {/* ── Video Feed ─────────────────────────────────────────── */}
+          <div className="bg-card border border-border rounded-lg overflow-hidden">
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <h2 className="font-semibold text-heading">Video Feed</h2>
+              <div className="flex items-center gap-2 text-sm">
+                <span className={`font-mono ${status?.connected ? 'text-green-400' : 'text-red-400'}`}>
+                  {status?.connected ? '● Connected' : '○ Disconnected'}
+                </span>
+                <span className="text-border">|</span>
+                <span className={`font-mono ${isStreaming ? 'text-green-400' : 'text-dim'}`}>
+                  {isStreaming ? '● Streaming' : '○ No feed'}
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-black aspect-video flex items-center justify-center relative">
+              {isStreaming ? (
                 <img
                   src="http://localhost:8000/api/video/feed"
                   alt="Drone video feed"
-                  className="w-full h-full object-contain rounded-lg"
+                  className="w-full h-full object-contain"
+                  onError={() => setVideoActive(false)}
                 />
               ) : (
-                <div className="text-dim text-center">
-                  <div className="text-6xl mb-4">📹</div>
-                  <p>Video feed not available</p>
-                  <p className="text-sm mt-2">Connect and start video</p>
+                <div className="text-dim text-center select-none">
+                  <div className="text-5xl mb-3 opacity-30">⬛</div>
+                  <p className="text-sm">
+                    {!status?.connected
+                      ? 'Connect to drone to enable video'
+                      : 'Click Start Video in controls'}
+                  </p>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Controls */}
-          <div className="bg-card border border-border rounded-lg p-6">
-            <h2 className="text-2xl font-bold mb-4">Controls</h2>
+          {/* ── Controls ───────────────────────────────────────────── */}
+          <div className="bg-card border border-border rounded-lg p-5 space-y-5">
+            <h2 className="font-semibold text-heading">Controls</h2>
 
-            {/* WiFi Scanner */}
-            <div className="mb-6">
+            {/* WiFi status */}
+            <section>
+              <p className="text-xs text-dim uppercase tracking-wide mb-2">WiFi</p>
               <WifiScanner />
-            </div>
+            </section>
 
-            {/* Connection Controls */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3 text-subheading">Connection</h3>
-              <div className="flex gap-3">
+            {/* Connection */}
+            <section>
+              <p className="text-xs text-dim uppercase tracking-wide mb-2">Connection</p>
+              <div className="flex gap-2">
                 <button
                   onClick={handleConnect}
-                  disabled={loading || status?.connected}
-                  className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-panel disabled:cursor-not-allowed px-4 py-2 rounded-lg font-semibold transition-colors"
+                  disabled={loading || !!status?.connected}
+                  className="flex-1 px-4 py-2 rounded font-medium text-sm transition-colors
+                    bg-green-700 hover:bg-green-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
                 >
                   Connect
                 </button>
                 <button
                   onClick={handleDisconnect}
                   disabled={loading || !status?.connected}
-                  className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-panel disabled:cursor-not-allowed px-4 py-2 rounded-lg font-semibold transition-colors"
+                  className="flex-1 px-4 py-2 rounded font-medium text-sm transition-colors
+                    bg-red-700 hover:bg-red-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
                 >
                   Disconnect
                 </button>
               </div>
-            </div>
+            </section>
 
-            {/* Video Controls */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3 text-subheading">Video</h3>
-              <div className="flex gap-3">
+            {/* Video */}
+            <section>
+              <p className="text-xs text-dim uppercase tracking-wide mb-2">Video</p>
+              <div className="flex gap-2">
                 <button
-                  onClick={handleStartVideo}
-                  disabled={loading || !status?.connected || status?.video_streaming}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-panel disabled:cursor-not-allowed px-4 py-2 rounded-lg font-semibold transition-colors"
+                  onClick={handleVideoToggle}
+                  disabled={loading || !status?.connected}
+                  className={`flex-1 px-4 py-2 rounded font-medium text-sm transition-colors
+                    disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed ${
+                    isStreaming
+                      ? 'bg-orange-700 hover:bg-orange-600'
+                      : 'bg-blue-700 hover:bg-blue-600'
+                  }`}
                 >
-                  Start Video
-                </button>
-                <button
-                  onClick={handleStopVideo}
-                  disabled={loading || !status?.video_streaming}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-panel disabled:cursor-not-allowed px-4 py-2 rounded-lg font-semibold transition-colors"
-                >
-                  Stop Video
+                  {isStreaming ? 'Stop Video' : 'Start Video'}
                 </button>
               </div>
-            </div>
+            </section>
 
-            {/* Camera Controls */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3 text-subheading">Camera</h3>
-              <div className="flex gap-3">
+            {/* Camera */}
+            <section>
+              <p className="text-xs text-dim uppercase tracking-wide mb-2">Camera</p>
+              <div className="flex gap-2">
                 <button
                   onClick={() => handleSwitchCamera(1)}
                   disabled={loading || !status?.connected}
-                  className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-panel disabled:cursor-not-allowed px-4 py-2 rounded-lg font-semibold transition-colors"
+                  className="flex-1 px-4 py-2 rounded font-medium text-sm transition-colors
+                    bg-purple-700 hover:bg-purple-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
                 >
-                  Camera 1
+                  Cam 1
                 </button>
                 <button
                   onClick={() => handleSwitchCamera(2)}
                   disabled={loading || !status?.connected}
-                  className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-panel disabled:cursor-not-allowed px-4 py-2 rounded-lg font-semibold transition-colors"
+                  className="flex-1 px-4 py-2 rounded font-medium text-sm transition-colors
+                    bg-purple-700 hover:bg-purple-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
                 >
-                  Camera 2
+                  Cam 2
                 </button>
               </div>
-            </div>
+            </section>
 
-            {/* Status Message */}
+            {/* Status message */}
             {message && (
-              <div className="mt-6 p-4 bg-panel rounded-lg">
-                <p className="text-sm">{message}</p>
+              <div className="px-3 py-2 rounded bg-panel border border-border text-sm text-muted">
+                {message}
               </div>
             )}
           </div>
         </div>
 
-        {/* Position Tracking (Phase 3) */}
+        {/* Position Tracking */}
         <div className="mt-8">
-          <h2 className="text-3xl font-bold mb-6 text-heading">Position Tracking</h2>
-
+          <h2 className="text-2xl font-bold mb-5 text-heading">Position Tracking</h2>
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            {/* Position Map */}
             <div className="xl:col-span-2">
               <PositionMap width={800} height={600} />
             </div>
-
-            {/* Position Info and Controls */}
             <div className="space-y-6">
               <PositionIndicator />
               <TrajectoryControls />
@@ -272,10 +226,8 @@ function App() {
           </div>
         </div>
 
-        {/* Info Footer */}
-        <footer className="mt-8 text-center text-dim text-sm">
-          <p>Phase 3: Position Tracking • Optical Flow + Kalman Filter</p>
-          <p className="mt-1">Next: Phase 4 - SLAM Integration</p>
+        <footer className="mt-8 text-center text-dim text-xs">
+          Phase 3: Optical Flow + Kalman Filter &nbsp;·&nbsp; Next: Phase 4 SLAM
         </footer>
       </div>
     </div>

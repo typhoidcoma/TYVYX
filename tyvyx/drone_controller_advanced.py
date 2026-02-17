@@ -22,23 +22,31 @@ class FlightController:
 		"""
 		self.send_command = send_command_callback
 
-		# Control values (0-255, 128 is neutral)
+		# Control values (0x80=128 is neutral, range 50-200 per E88Pro protocol)
 		self.throttle = 128
 		self.yaw = 128
 		self.pitch = 128
 		self.roll = 128
 
-		# Control limits
-		self.MIN_VAL = 0
-		self.MAX_VAL = 255
+		# Control limits (E88Pro proven range)
+		self.MIN_VAL = 50
+		self.MAX_VAL = 200
 		self.NEUTRAL = 128
-		self.STEP = 10  # Control increment step
+		self.STEP = 50  # Control increment step (matches E88Pro accel)
+		self.DECEL_STEP = 5  # Auto-deceleration toward center (0 to disable)
+
+		# One-shot command flags
+		self._takeoff_flag = False
+		self._land_flag = False
+		self._calibrate_flag = False
+		self._flip_flag = False
+		self._headless_mode = False  # toggle, persists until toggled again
 
 		# Command sending
 		self.control_thread = None
 		self.is_active = False
 		self.last_command_time = 0
-		self.command_interval = 0.04  # 40ms between commands (25 Hz)
+		self.command_interval = 0.03  # 30ms between commands (~33 Hz, matches E88Pro)
 
 	def start(self):
 		"""Start sending flight commands"""
@@ -109,34 +117,98 @@ class FlightController:
 
 			time.sleep(0.01)  # Small sleep to prevent CPU spinning
 
+	def takeoff(self):
+		"""Trigger one-touch takeoff (flag 0x01)"""
+		self._takeoff_flag = True
+
+	def land(self):
+		"""Trigger land (flag 0x02)"""
+		self._land_flag = True
+
+	def calibrate_gyro(self):
+		"""Trigger gyro calibration (flag 0x80)"""
+		self._calibrate_flag = True
+
+	def flip(self):
+		"""Trigger somersault/flip (flag 0x08). Combine with direction input."""
+		self._flip_flag = True
+
+	def toggle_headless(self):
+		"""Toggle headless mode (flag 0x10)"""
+		self._headless_mode = not self._headless_mode
+
+	def _build_flags(self) -> int:
+		"""Build the flags byte from current flag state."""
+		flags = 0
+		if self._takeoff_flag:
+			flags |= 0x01
+		if self._land_flag:
+			flags |= 0x02
+		if self._flip_flag:
+			flags |= 0x08
+		if self._headless_mode:
+			flags |= 0x10
+		if self._calibrate_flag:
+			flags |= 0x80
+		return flags
+
+	def _clear_flags(self):
+		"""Clear one-shot flags after sending. Headless is a toggle, not cleared."""
+		self._takeoff_flag = False
+		self._land_flag = False
+		self._calibrate_flag = False
+		self._flip_flag = False
+
+	def _auto_decel(self):
+		"""Decay control values toward center (128) by DECEL_STEP."""
+		if self.DECEL_STEP <= 0:
+			return
+		for attr in ('roll', 'pitch', 'throttle', 'yaw'):
+			val = getattr(self, attr)
+			if val > self.NEUTRAL:
+				setattr(self, attr, max(val - self.DECEL_STEP, self.NEUTRAL))
+			elif val < self.NEUTRAL:
+				setattr(self, attr, min(val + self.DECEL_STEP, self.NEUTRAL))
+
 	def _send_flight_command(self):
 		"""
-		Send flight control command
+		Send flight control command using E88Pro-proven packet format.
 
-		EXPERIMENTAL COMMAND FORMAT:
-		Based on common drone protocols, trying multiple possible formats:
+		9-byte packet: [0x03, 0x66, roll, pitch, throttle, yaw, flags, xor, 0x99]
 		"""
-		# Format 1: Simple 5-byte command with checksum
-		cmd_id = 0x50
-		checksum = (cmd_id + self.throttle + self.yaw + self.pitch + self.roll) & 0xFF
-		command = bytes(
-			[cmd_id, self.throttle, self.yaw, self.pitch, self.roll, checksum]
-		)
+		flags = self._build_flags()
 
-		# Send command
+		basebytes = bytearray(8)
+		basebytes[0] = 0x66                       # protocol marker
+		basebytes[1] = self.roll & 0xFF
+		basebytes[2] = self.pitch & 0xFF
+		basebytes[3] = self.throttle & 0xFF
+		basebytes[4] = self.yaw & 0xFF
+		basebytes[5] = flags
+		basebytes[6] = basebytes[1] ^ basebytes[2] ^ basebytes[3] ^ basebytes[4] ^ basebytes[5]
+		basebytes[7] = 0x99                       # end marker
+
+		packet = bytes([0x03]) + bytes(basebytes)
+
 		try:
-			self.send_command(command)
+			self.send_command(packet)
 		except Exception as e:
 			print(f"Error sending flight command: {e}")
 
+		self._clear_flags()
+		self._auto_decel()
+
 	def get_status_text(self) -> List[str]:
 		"""Get status text for display"""
-		return [
+		lines = [
 			f"Throttle: {self.throttle:3d} ({((self.throttle-128)/128*100):+.0f}%)",
 			f"Yaw:      {self.yaw:3d} ({((self.yaw-128)/128*100):+.0f}%)",
 			f"Pitch:    {self.pitch:3d} ({((self.pitch-128)/128*100):+.0f}%)",
 			f"Roll:     {self.roll:3d} ({((self.roll-128)/128*100):+.0f}%)",
 		]
+		if self._headless_mode:
+			lines.append("HEADLESS MODE: ON")
+		return lines
 
 
 class TYVYXDroneControllerAdvanced:
@@ -149,16 +221,21 @@ class TYVYXDroneControllerAdvanced:
 	RTSP_URL = f"rtsp://{DRONE_IP}:{RTSP_PORT}/webcam"
 
 	# Command bytes
-	CMD_HEARTBEAT = bytes([1, 1])
-	CMD_INITIALIZE = bytes([100])
-	CMD_SPECIAL = bytes([99])
-	CMD_CAMERA_1 = bytes([6, 1])
-	CMD_CAMERA_2 = bytes([6, 2])
-	CMD_SCREEN_MODE_1 = bytes([9, 1])
-	CMD_SCREEN_MODE_2 = bytes([9, 2])
+	CMD_HEARTBEAT = bytes([0x01, 0x01])
+	CMD_INITIALIZE = bytes([0x64])               # connection init
+	CMD_START_VIDEO = bytes([0x08, 0x01])        # activates RTSP server (E88Pro proven)
+	CMD_SPECIAL = bytes([0x63])
+	CMD_CAMERA_1 = bytes([0x06, 0x01])
+	CMD_CAMERA_2 = bytes([0x06, 0x02])
+	CMD_SCREEN_MODE_1 = bytes([0x09, 0x01])
+	CMD_SCREEN_MODE_2 = bytes([0x09, 0x02])
 
-	def __init__(self):
+	def __init__(self, drone_ip: str = "192.168.1.1"):
 		"""Initialize the drone controller"""
+		# Allow per-instance IP override (class vars remain as defaults)
+		self.DRONE_IP = drone_ip
+		self.RTSP_URL = f"rtsp://{drone_ip}:{self.RTSP_PORT}/webcam"
+
 		self.udp_socket: Optional[socket.socket] = None
 		self.video_capture: Optional[cv2.VideoCapture] = None
 		# Threaded video stream helper (set when starting video)
@@ -188,7 +265,10 @@ class TYVYXDroneControllerAdvanced:
 				self._parse_response(data)
 				self.is_connected = True
 				print(f"Connected! Device type: {self.device_type}")
-			except socket.timeout:
+			except (socket.timeout, ConnectionResetError, OSError):
+				# No response or ICMP port-unreachable (WinError 10054 on Windows
+				# when sending UDP to a host that isn't listening). Treat as
+				# "drone present but silent" and continue — heartbeats will tell.
 				print("Warning: No response from drone, but continuing...")
 				self.is_connected = True
 
@@ -285,7 +365,8 @@ class TYVYXDroneControllerAdvanced:
 			try:
 				data, addr = self.udp_socket.recvfrom(1024)
 				self._parse_response(data)
-			except socket.timeout:
+			except (socket.timeout, ConnectionResetError):
+				# timeout or ICMP port-unreachable — drone not yet reachable
 				continue
 			except Exception as e:
 				if self.is_running:
@@ -306,10 +387,17 @@ class TYVYXDroneControllerAdvanced:
 		try:
 			print(f"Starting video stream from {self.RTSP_URL}...")
 
+			# Send video activation command (activates RTSP server on drone)
+			self.send_command(self.CMD_START_VIDEO, verbose=True)
+			time.sleep(1.0)  # give RTSP server time to start
+
 			from .video_stream import OpenCVVideoStream
 
-			self.video_stream = OpenCVVideoStream(self.RTSP_URL, buffer_size=1, prefer_tcp=True, max_retries=5, retry_delay=1.5)
-			if not self.video_stream.start(timeout=6.0):
+			self.video_stream = OpenCVVideoStream(
+				self.RTSP_URL, buffer_size=1, prefer_tcp=True,
+				max_retries=2, retry_delay=1.0, rtsp_timeout=5.0,
+			)
+			if not self.video_stream.start(timeout=5.0):
 				print("Failed to open video stream")
 				return False
 
@@ -343,18 +431,19 @@ class TYVYXDroneControllerAdvanced:
 				cmd = self.CMD_CAMERA_2
 			else:
 				return False
-			sent = self.send_command(cmd, verbose=True)
-			# If a threaded video stream is active, restart it so the new camera feed is picked up
+			# E88Pro pattern: pause stream, wait, send switch, wait, reinitialize
 			if getattr(self, 'video_stream', None):
 				try:
 					self.video_stream.stop()
-					time.sleep(0.35)
-					# attempt to start stream again
+					time.sleep(1.0)  # pause before switch (E88Pro uses 1s)
+					self.send_command(cmd, verbose=True)
+					time.sleep(1.0)  # wait for camera to switch
 					started = self.start_video_stream()
 					return bool(started)
 				except Exception:
-					return bool(sent)
-			return bool(sent)
+					return False
+			# No active video stream — just send the command
+			return bool(self.send_command(cmd, verbose=True))
 		except Exception:
 			return False
 
@@ -386,11 +475,16 @@ def main():
 	print("  2       - Switch to Camera 2")
 	print("  M       - Switch Screen Mode")
 	print("  S       - Take Screenshot")
-	print("\nFlight Controls (EXPERIMENTAL):")
+	print("\nFlight Controls (E88Pro protocol):")
 	print("  W/S     - Pitch Forward/Backward")
 	print("  A/D     - Roll Left/Right")
-	print("  ↑/↓     - Throttle Up/Down")
-	print("  ←/→     - Yaw Left/Right")
+	print("  UP/DOWN - Throttle Up/Down")
+	print("  LEFT/RIGHT - Yaw Left/Right")
+	print("  Z       - One-touch Takeoff")
+	print("  X       - Land")
+	print("  C       - Calibrate Gyro")
+	print("  F       - Flip (combine with direction)")
+	print("  H       - Toggle Headless Mode")
 	print("=" * 70)
 
 	# Create drone controller
@@ -520,8 +614,6 @@ def main():
 			elif flight_active:
 				if key == ord("w") or key == ord("W"):
 					drone.flight_controller.pitch_forward()
-				elif key == ord("s") or key == ord("S"):
-					drone.flight_controller.pitch_backward()
 				elif key == ord("a") or key == ord("A"):
 					drone.flight_controller.roll_left()
 				elif key == ord("d") or key == ord("D"):
@@ -534,6 +626,21 @@ def main():
 					drone.flight_controller.yaw_left()
 				elif key == 83 or key == 3:  # Right arrow
 					drone.flight_controller.yaw_right()
+				elif key == ord("z") or key == ord("Z"):
+					drone.flight_controller.takeoff()
+					print("TAKEOFF command sent")
+				elif key == ord("x") or key == ord("X"):
+					drone.flight_controller.land()
+					print("LAND command sent")
+				elif key == ord("c") or key == ord("C"):
+					drone.flight_controller.calibrate_gyro()
+					print("CALIBRATE GYRO command sent")
+				elif key == ord("f") or key == ord("F"):
+					drone.flight_controller.flip()
+					print("FLIP command sent")
+				elif key == ord("h") or key == ord("H"):
+					drone.flight_controller.toggle_headless()
+					print(f"HEADLESS MODE: {'ON' if drone.flight_controller._headless_mode else 'OFF'}")
 
 	except KeyboardInterrupt:
 		print("\nInterrupted by user")

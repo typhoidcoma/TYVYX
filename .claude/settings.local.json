@@ -18,7 +18,31 @@
       "Bash(git commit:*)",
       "Bash(ls:*)",
       "Bash(find \"I:/Projects/Drones/TEKY\" -not -path \"*/.git/*\" -not -path \"*/node_modules/*\" -not -path \"*/__pycache__/*\" -not -path \"*/.claude/*\" -not -name \"*.lock\" -not -name \"package-lock.json\" -type f -name \"*.json\" -exec sed -i 's/TEKY/TYVYX/g; s/teky/tyvyx/g; s/Teky/Tyvyx/g' {} +)",
-      "Bash(nvidia-smi:*)"
+      "Bash(nvidia-smi:*)",
+      "Bash(for pid in 89928 27460 52452 74820 2868)",
+      "Bash(do echo \"PID $pid:\")",
+      "Bash(wmic process:*)",
+      "Bash(done)",
+      "Bash(taskkill:*)",
+      "Bash(cmd //c \"taskkill /PID 89928 /F & taskkill /PID 27460 /F & taskkill /PID 52452 /F & taskkill /PID 74820 /F & taskkill /PID 2868 /F\")",
+      "Bash(find:*)",
+      "Bash(powershell -Command \"Get-Process python* | Where-Object { $_.CommandLine -like ''*autonomous*'' } | Stop-Process -Force; Write-Host ''killed''\")",
+      "Bash(cmd //c \"for %p in \\(89928 27460 52452 74820 2868 81644\\) do taskkill /PID %p /F 2>nul\")",
+      "Bash(for pid in 74820 2868 52452 27460 89928)",
+      "Bash(do echo -n \"PID $pid: \")",
+      "Bash(cmd //c \"netstat -ano | findstr :8000 | findstr LISTENING\")",
+      "Bash(cmd //c \"taskkill /PID 2868 /T /F & taskkill /PID 35748 /T /F & taskkill /PID 27460 /T /F & taskkill /PID 89928 /T /F & taskkill /PID 52452 /T /F & taskkill /PID 81644 /T /F\")",
+      "Bash(cmd //c \"wmic process where \"\"name=''python.exe''\"\" get ProcessId,CommandLine 2>nul\")",
+      "Bash(cmd //c \"wmic process where \"\"name=''python.exe''\"\" get ProcessId,CommandLine\")",
+      "Bash(cmd //c \"taskkill /PID 51964 /F & taskkill /PID 3904 /F & taskkill /PID 69176 /F & taskkill /PID 12172 /F & taskkill /PID 39360 /F\")",
+      "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object OwningProcess\")",
+      "Bash(powershell -Command:*)",
+      "Bash(powershell \"Get-Process python* -ErrorAction SilentlyContinue | Stop-Process -Force\")",
+      "Bash(ipconfig:*)",
+      "Bash(route print:*)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\tesse\\.claude\\projects\\i--Projects-Drones-TEKY\\memory"
     ]
   }
 }

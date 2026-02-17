@@ -114,12 +114,13 @@ class TYVYXDroneYOLO:
 	RTSP_PORT = 7070
 	RTSP_URL = f"rtsp://{DRONE_IP}:{RTSP_PORT}/webcam"
 
-	CMD_HEARTBEAT = bytes([1, 1])
-	CMD_INITIALIZE = bytes([100])
-	CMD_CAMERA_1 = bytes([6, 1])
-	CMD_CAMERA_2 = bytes([6, 2])
-	CMD_SCREEN_MODE_1 = bytes([9, 1])
-	CMD_SCREEN_MODE_2 = bytes([9, 2])
+	CMD_HEARTBEAT = bytes([0x01, 0x01])
+	CMD_INITIALIZE = bytes([0x64])               # connection init
+	CMD_START_VIDEO = bytes([0x08, 0x01])        # activates RTSP server (E88Pro proven)
+	CMD_CAMERA_1 = bytes([0x06, 0x01])
+	CMD_CAMERA_2 = bytes([0x06, 0x02])
+	CMD_SCREEN_MODE_1 = bytes([0x09, 0x01])
+	CMD_SCREEN_MODE_2 = bytes([0x09, 0x02])
 
 	def __init__(self):
 		self.udp_socket: Optional[socket.socket] = None

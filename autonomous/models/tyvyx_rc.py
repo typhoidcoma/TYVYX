@@ -12,34 +12,34 @@ from .control_profile import StickRange, PROFILES
 
 class TYVYXRCModel(BaseRCModel):
     """
-    RC control model for TYVYX drone
+    RC control model for TYVYX drone (E88Pro-proven protocol)
 
-    Protocol details (from tyvyx/drone_controller.py):
+    Protocol details:
     - UDP port: 7099
     - Heartbeat: [0x01, 0x01]
+    - Init: [0x64]
+    - Start Video (RTSP activation): [0x08, 0x01]
     - Camera switch: [0x06, 0x01] or [0x06, 0x02]
     - Screen mode: [0x09, 0x01] or [0x09, 0x02]
 
-    Flight Control (EXPERIMENTAL - from tyvyx/drone_controller_advanced.py):
-    - Format: [CMD_ID, throttle, yaw, pitch, roll, checksum]
-    - CMD_ID: 0x50
-    - Values: 0-255 (128 = neutral)
-    - Checksum: sum of all bytes & 0xFF
-
-    Note: This is experimental and needs validation through Phase 1 testing!
+    Flight Control (E88Pro-proven format):
+    - Packet: [0x03, 0x66, roll, pitch, throttle, yaw, flags, xor_checksum, 0x99]
+    - Values: 50-200 (128 = neutral)
+    - Checksum: XOR of roll ^ pitch ^ throttle ^ yaw ^ flags
+    - Flags: takeoff=0x01, land=0x02, flip=0x08, headless=0x10, calibrate=0x80
     """
 
     # TYVYX protocol constants
-    CMD_ID_FLIGHT = 0x50
     CMD_HEARTBEAT = bytes([0x01, 0x01])
+    CMD_INIT = bytes([0x64])
+    CMD_START_VIDEO = bytes([0x08, 0x01])
     CMD_CAMERA_1 = bytes([0x06, 0x01])
     CMD_CAMERA_2 = bytes([0x06, 0x02])
     CMD_SCREEN_1 = bytes([0x09, 0x01])
     CMD_SCREEN_2 = bytes([0x09, 0x02])
 
-    # TYVYX stick range (from existing controller)
-    # This is the "logical" range - needs calibration!
-    DEFAULT_STICK_RANGE = StickRange(min=0.0, mid=128.0, max=255.0)
+    # E88Pro-proven stick range
+    DEFAULT_STICK_RANGE = StickRange(min=50.0, mid=128.0, max=200.0)
 
     def __init__(
         self,
@@ -66,45 +66,39 @@ class TYVYXRCModel(BaseRCModel):
 
     def build_control_packet(self) -> bytes:
         """
-        Build TYVYX flight control packet
+        Build TYVYX flight control packet (E88Pro-proven format).
 
-        Format (EXPERIMENTAL):
-        [CMD_ID, throttle, yaw, pitch, roll, checksum]
-
-        Where:
-        - CMD_ID = 0x50
-        - throttle, yaw, pitch, roll: 0-255 (128 = neutral)
-        - checksum = (sum of all bytes) & 0xFF
+        9-byte packet: [0x03, 0x66, roll, pitch, throttle, yaw, flags, xor, 0x99]
 
         Returns:
-            6-byte control packet
+            9-byte control packet
         """
-        # Convert from stick range to protocol range (0-255)
-        throttle_byte = int(self._throttle)
-        yaw_byte = int(self._yaw)
-        pitch_byte = int(self._pitch)
-        roll_byte = int(self._roll)
+        roll_byte = max(50, min(200, int(self._roll)))
+        pitch_byte = max(50, min(200, int(self._pitch)))
+        throttle_byte = max(50, min(200, int(self._throttle)))
+        yaw_byte = max(50, min(200, int(self._yaw)))
 
-        # Clamp to valid range
-        throttle_byte = max(0, min(255, throttle_byte))
-        yaw_byte = max(0, min(255, yaw_byte))
-        pitch_byte = max(0, min(255, pitch_byte))
-        roll_byte = max(0, min(255, roll_byte))
+        # Build flags from model state
+        flags = 0
+        if getattr(self, '_takeoff_flag', False):
+            flags |= 0x01
+        if getattr(self, '_land_flag', False):
+            flags |= 0x02
 
-        # Build packet
-        packet = [
-            self.CMD_ID_FLIGHT,
+        # XOR checksum
+        xor = roll_byte ^ pitch_byte ^ throttle_byte ^ yaw_byte ^ flags
+
+        return bytes([
+            0x03,           # command prefix
+            0x66,           # protocol marker
+            roll_byte,
+            pitch_byte,
             throttle_byte,
             yaw_byte,
-            pitch_byte,
-            roll_byte
-        ]
-
-        # Calculate checksum
-        checksum = sum(packet) & 0xFF
-        packet.append(checksum)
-
-        return bytes(packet)
+            flags,
+            xor,
+            0x99,           # end marker
+        ])
 
     def build_heartbeat_packet(self) -> bytes:
         """Build heartbeat packet"""

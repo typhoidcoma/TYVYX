@@ -24,13 +24,14 @@ class TYVYXDroneController:
 	RTSP_URL = f"rtsp://{DRONE_IP}:{RTSP_PORT}/webcam"
 
 	# Command bytes
-	CMD_HEARTBEAT = bytes([1, 1])
-	CMD_INITIALIZE = bytes([100])
-	CMD_SPECIAL = bytes([99])
-	CMD_CAMERA_1 = bytes([6, 1])
-	CMD_CAMERA_2 = bytes([6, 2])
-	CMD_SCREEN_MODE_1 = bytes([9, 1])
-	CMD_SCREEN_MODE_2 = bytes([9, 2])
+	CMD_HEARTBEAT = bytes([0x01, 0x01])
+	CMD_INITIALIZE = bytes([0x64])               # connection init
+	CMD_START_VIDEO = bytes([0x08, 0x01])        # activates RTSP server (E88Pro proven)
+	CMD_SPECIAL = bytes([0x63])
+	CMD_CAMERA_1 = bytes([0x06, 0x01])
+	CMD_CAMERA_2 = bytes([0x06, 0x02])
+	CMD_SCREEN_MODE_1 = bytes([0x09, 0x01])
+	CMD_SCREEN_MODE_2 = bytes([0x09, 0x02])
 
 	def __init__(self):
 		"""Initialize the drone controller"""
@@ -233,12 +234,19 @@ class TYVYXDroneController:
 		try:
 			print(f"Starting video stream from {self.RTSP_URL}...")
 
+			# Send video activation command (activates RTSP server on drone)
+			self.send_command(self.CMD_START_VIDEO)
+			time.sleep(1.0)  # give RTSP server time to start
+
 			# Use the threaded OpenCVVideoStream helper for lower-latency reads
 			from .video_stream import OpenCVVideoStream
 
 			# prefer TCP transport for RTSP streams to avoid Unsupported Transport errors
-			self.video_stream = OpenCVVideoStream(self.RTSP_URL, buffer_size=1, prefer_tcp=True, max_retries=5, retry_delay=1.5)
-			if not self.video_stream.start(timeout=6.0):
+			self.video_stream = OpenCVVideoStream(
+				self.RTSP_URL, buffer_size=1, prefer_tcp=True,
+				max_retries=2, retry_delay=1.0, rtsp_timeout=5.0,
+			)
+			if not self.video_stream.start(timeout=5.0):
 				print("Failed to open video stream with OpenCV")
 				print("Please ensure:")
 				print("1. You're connected to the drone's WiFi network")

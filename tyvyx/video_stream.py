@@ -11,7 +11,7 @@ import os
 import socket
 import threading
 import time
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 from urllib.parse import urlparse
 
 import cv2
@@ -47,7 +47,7 @@ class OpenCVVideoStream:
         source: camera index (int) or URL string.
     """
 
-    def __init__(self, source: str | int = 0, **kwargs):
+    def __init__(self, source: Union[str, int] = 0, **kwargs):
         # compatibility options
         self.source = source
         self._prefer_tcp = bool(kwargs.pop('prefer_tcp', False))
@@ -65,7 +65,7 @@ class OpenCVVideoStream:
         self._frame: Optional[np.ndarray] = None
         self._lock = threading.Lock()
 
-    def _build_source_url(self) -> str | int:
+    def _build_source_url(self) -> Union[str, int]:
         """Build the actual source string with transport and timeout params."""
         src = self.source
         if not isinstance(src, str) or not src.startswith('rtsp://'):

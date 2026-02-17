@@ -15,8 +15,8 @@ class BaseVideoModel(ABC):
     def ingest_chunk(
         self,
         *,
-        stream_id: int | None = None,
-        chunk_id: int | None = None,
+        stream_id: Optional[int] = None,
+        chunk_id: Optional[int] = None,
         payload: bytes,
     ) -> Optional[VideoFrame]:
         """

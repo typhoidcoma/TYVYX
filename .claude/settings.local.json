@@ -42,7 +42,8 @@
       "Bash(route print:*)",
       "Bash(npx tsc:*)",
       "Bash(echo:*)",
-      "Bash(xxd:*)"
+      "Bash(xxd:*)",
+      "Bash(.venv/Scripts/pip install:*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\tesse\\.claude\\projects\\i--Projects-Drones-TEKY\\memory"

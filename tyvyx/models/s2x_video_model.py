@@ -22,8 +22,8 @@ class S2xVideoModel(BaseVideoModel):
     def ingest_chunk(
         self,
         *,
-        stream_id: int | None = None,
-        chunk_id: int | None = None,
+        stream_id: Optional[int] = None,
+        chunk_id: Optional[int] = None,
         payload: bytes,
     ) -> Optional[VideoFrame]:
         if stream_id is None or chunk_id is None:

@@ -2,13 +2,17 @@
 
 ![TYVYX Logo](assets/1x/1tyvyx_logomdpi.png)
 
-> Reverse-engineered Python control system with autonomous navigation capabilities
+> Reverse-engineered AI control system for cheap Chinese hobby drones
 
-A comprehensive drone control system for TYVYX WiFi drones, featuring manual control, computer vision integration, and an autonomous navigation framework.
+Cheap WiFi drones from Amazon — like the **K417** and similar sub-$50 models — ship with a basic Android app and no open API. This project reverse-engineers their UDP control protocol and RTSP video stream to replace the stock app with a full AI-capable control stack: computer vision, autonomous navigation, SLAM, and a modern web interface.
+
+The goal is to use these mass-produced, disposable hobby drones as a low-cost platform for AI and robotics research.
 
 ## Overview
 
-This project provides complete control over TYVYX WiFi drones through reverse-engineered UDP protocols. Built on reverse engineering of the official Android app, it includes basic video streaming, manual controls, and an extensible autonomous navigation system.
+These drones communicate over a simple WiFi hotspot using an undocumented UDP command protocol and an RTSP video feed. By sniffing traffic between the drone and its official Android app, we reconstructed the full command set and built a Python control layer on top of it.
+
+From there, the project adds what the manufacturer never intended: optical flow position estimation, YOLO object detection, autonomous flight planning, and a React web interface — all running on commodity hardware with no drone modifications required.
 
 **Project Status**:
 - ✅ Phase 1: Flight control calibration tools
@@ -46,7 +50,7 @@ This project provides complete control over TYVYX WiFi drones through reverse-en
 
 - Python 3.8 or higher
 - FFmpeg (for video streaming)
-- TYVYX WiFi drone (HD-720P-*, HD-FPV-*, HD720-*, FHD-* models)
+- A compatible WiFi hobby drone (K417, HD-720P-*, HD-FPV-*, HD720-*, FHD-* and similar)
 
 ### Installation
 
@@ -265,12 +269,17 @@ See [Protocol Specification](docs/technical/protocol-specification.md) for detai
 
 ## Supported Drone Models
 
-- HD-720P-* (tested)
-- HD-FPV-* (tested)
-- HD720-* (compatible)
-- FHD-* (compatible)
+These drones all share the same WiFi + UDP + RTSP architecture and are broadly compatible:
 
-*Based on reverse engineering of common TYVYX WiFi drone firmware*
+| Model | Notes |
+|-------|-------|
+| **K417** (Amazon) | Primary development hardware |
+| HD-720P-* | Tested and working |
+| HD-FPV-* | Tested and working |
+| HD720-* | Compatible |
+| FHD-* | Compatible |
+
+Any cheap WiFi drone that creates a hotspot at `192.168.1.1`, streams RTSP on port 7070, and accepts UDP commands on port 7099 is likely compatible. These are sold under dozens of brand names on Amazon and AliExpress — the firmware is nearly identical across all of them.
 
 ## Acknowledgments
 
@@ -283,7 +292,7 @@ See [Protocol Specification](docs/technical/protocol-specification.md) for detai
 
 Educational purposes only. Use at your own risk.
 
-This project is not affiliated with or endorsed by TYVYX or the original drone manufacturer. All trademarks are property of their respective owners.
+This project is not affiliated with or endorsed by any drone manufacturer. All trademarks are property of their respective owners. The reverse engineering was performed for interoperability purposes.
 
 ---
 

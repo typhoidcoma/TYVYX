@@ -1,6 +1,6 @@
 # TYVYX WiFi Drone Controller
 
-![TYVYX Logo](assets/SVG/1tyvyx_logo.svg)
+![TYVYX Logo](assets/SVG/1tyvyx_logo_3.svg)
 
 > Reverse-engineered AI control system for cheap Chinese hobby drones
 

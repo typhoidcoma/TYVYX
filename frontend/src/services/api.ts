@@ -70,6 +70,28 @@ export const droneApi = {
   },
 };
 
+// Network / WiFi Scanner APIs
+export interface WifiNetwork {
+  ssid: string;
+  signal: number;       // 0–100
+  security: string;
+  bssid: string;
+  is_drone: boolean;
+}
+
+export interface ScanResult {
+  networks: WifiNetwork[];
+  current_ssid: string | null;
+  connected_to_drone: boolean;
+}
+
+export const networkApi = {
+  scan: async (): Promise<ScanResult> => {
+    const response = await api.get<ScanResult>('/api/network/scan');
+    return response.data;
+  },
+};
+
 // Video APIs
 export const videoApi = {
   getFeedUrl: () => `${API_BASE_URL}/api/video/feed`,

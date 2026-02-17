@@ -4,6 +4,7 @@ import { usePositionStore } from './stores/positionStore'
 import { PositionMap } from './components/PositionMap'
 import { PositionIndicator } from './components/PositionIndicator'
 import { TrajectoryControls } from './components/TrajectoryControls'
+import { WifiScanner } from './components/WifiScanner'
 import './App.css'
 
 function App() {
@@ -175,6 +176,11 @@ function App() {
           {/* Controls */}
           <div className="bg-card border border-border rounded-lg p-6">
             <h2 className="text-2xl font-bold mb-4">Controls</h2>
+
+            {/* WiFi Scanner */}
+            <div className="mb-6">
+              <WifiScanner />
+            </div>
 
             {/* Connection Controls */}
             <div className="mb-6">

@@ -126,7 +126,7 @@ function App() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <header className="mb-8 flex items-center gap-6">
-          <img src="/tyvyx_logo.png" alt="TYVYX" className="h-16 w-auto" />
+          <img src="/tyvyx_logo.svg" alt="TYVYX" className="h-16 w-auto" />
           <div>
             <h1 className="text-4xl font-bold mb-2">Drone Control</h1>
             <p className="text-muted">Phase 3: Position Tracking with Optical Flow</p>

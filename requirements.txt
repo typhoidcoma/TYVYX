@@ -11,8 +11,19 @@ pyyaml>=6.0.1
 python-socketio>=5.10.0
 aiofiles>=23.2.1
 
-# Optional (heavy) dependency for YOLO integration - enable only if needed
-# ultralytics>=8.0.0
+# YOLO inference (GPU via CUDA auto-selected when torch+CUDA is installed)
+ultralytics>=8.0.0
+
+# PyTorch — install the CUDA 12.x build for RTX 3090 GPU acceleration (sm_86):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121 --force-reinstall
+# CPU-only fallback (auto-installed by ultralytics if torch not already present):
+torch>=2.0.0
+torchvision>=0.15.0
+
+# OpenCV — standard build (CPU only, works out of the box)
+# For CUDA-accelerated optical flow (cv2.cuda.*), build OpenCV from source
+# with -DWITH_CUDA=ON, or use an unofficial CUDA wheel. The tracker falls
+# back to CPU automatically if cv2.cuda is unavailable.
 
 # Helper for advanced network inspection (optional but recommended)
 psutil>=5.9.0

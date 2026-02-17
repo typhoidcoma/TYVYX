@@ -1,6 +1,6 @@
 # TYVYX WiFi Drone Controller
 
-![TYVYX Logo](assets/1x/1tyvyx_logomdpi.png)
+![TYVYX Logo](assets/SVG/1tyvyx_logo_2.svg)
 
 > Reverse-engineered AI control system for cheap Chinese hobby drones
 
@@ -273,18 +273,19 @@ AI inference runs on the control laptop — not the drone itself (the drone has 
 
 | Component | Spec |
 |-----------|------|
-| **Platform** | Windows 11 laptop |
-| **GPU** | NVIDIA RTX 5070 (mobile, 8 GB VRAM) |
-| **CUDA** | Targeted: CUDA 12.x with cuDNN |
+| **Platform** | Windows laptop |
+| **GPU** | NVIDIA RTX 3090 (sm_86, 24 GB VRAM) |
+| **Driver** | 581.57 (CUDA 12.x capable) |
+| **Python** | 3.8 (venv) |
 
-The RTX 5070 handles all GPU-accelerated workloads: YOLO11 inference, future SLAM pipelines, and depth estimation models. Wherever a choice exists between CPU and GPU execution, **prefer CUDA** — the bottleneck in this system is latency, and the 5070 will outperform any CPU fallback significantly.
+The RTX 3090 handles all GPU-accelerated workloads: YOLO11 inference, future SLAM pipelines, and depth estimation models. Wherever a choice exists between CPU and GPU execution, **prefer CUDA** — the bottleneck in this system is latency, and the 3090 will outperform any CPU fallback significantly.
 
 ### GPU Usage by Component
 
 | Component | Status | Notes |
 |-----------|--------|-------|
 | YOLO11 inference | 🎯 Use `device="cuda"` | Ultralytics auto-selects if available |
-| OpenCV optical flow | ⚠️ CPU only | `cv2.cuda` LK tracker is a future upgrade |
+| OpenCV optical flow | ✅ CUDA + CPU fallback | `cv2.cuda.SparsePyrLKOpticalFlow` auto-selected |
 | Future depth models | 🎯 GPU | PyTorch `model.to("cuda")` |
 | Future ORB-SLAM3 | 🎯 GPU | Compile with CUDA support |
 

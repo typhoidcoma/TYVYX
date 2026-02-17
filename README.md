@@ -1,5 +1,7 @@
 # TYVYX WiFi Drone Controller
 
+![TYVYX Logo](assets/1x/1tyvyx_logomdpi.png)
+
 > Reverse-engineered Python control system with autonomous navigation capabilities
 
 A comprehensive drone control system for TYVYX WiFi drones, featuring manual control, computer vision integration, and an autonomous navigation framework.

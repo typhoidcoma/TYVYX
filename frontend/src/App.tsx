@@ -62,8 +62,8 @@ function App() {
     try {
       const result = await droneApi.connect()
       setMessage(result.message)
-    } catch (error: any) {
-      setMessage(`Error: ${error.message}`)
+    } catch (error) {
+      setMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
     }
     setLoading(false)
   }
@@ -75,8 +75,8 @@ function App() {
       const result = await droneApi.disconnect()
       setMessage(result.message)
       setVideoStarted(false)
-    } catch (error: any) {
-      setMessage(`Error: ${error.message}`)
+    } catch (error) {
+      setMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
     }
     setLoading(false)
   }
@@ -90,8 +90,8 @@ function App() {
       if (result.success) {
         setVideoStarted(true)
       }
-    } catch (error: any) {
-      setMessage(`Error: ${error.message}`)
+    } catch (error) {
+      setMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
     }
     setLoading(false)
   }
@@ -103,8 +103,8 @@ function App() {
       const result = await droneApi.stopVideo()
       setMessage(result.message)
       setVideoStarted(false)
-    } catch (error: any) {
-      setMessage(`Error: ${error.message}`)
+    } catch (error) {
+      setMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
     }
     setLoading(false)
   }
@@ -115,8 +115,8 @@ function App() {
     try {
       const result = await droneApi.switchCamera(camera)
       setMessage(result.message)
-    } catch (error: any) {
-      setMessage(`Error: ${error.message}`)
+    } catch (error) {
+      setMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
     }
     setLoading(false)
   }
@@ -125,9 +125,12 @@ function App() {
     <div className="min-h-screen bg-base text-heading p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <header className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">🚁 TYVYX Drone Control</h1>
-          <p className="text-muted">Phase 3: Position Tracking with Optical Flow</p>
+        <header className="mb-8 flex items-center gap-6">
+          <img src="/tyvyx_logo.png" alt="TYVYX" className="h-16 w-auto" />
+          <div>
+            <h1 className="text-4xl font-bold mb-2">Drone Control</h1>
+            <p className="text-muted">Phase 3: Position Tracking with Optical Flow</p>
+          </div>
         </header>
 
         {/* Status Bar */}

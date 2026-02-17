@@ -387,17 +387,21 @@ class TYVYXDroneControllerAdvanced:
 		try:
 			print(f"Starting video stream from {self.RTSP_URL}...")
 
-			# Send video activation command (activates RTSP server on drone)
-			self.send_command(self.CMD_START_VIDEO, verbose=True)
-			time.sleep(1.0)  # give RTSP server time to start
-
 			from .video_stream import OpenCVVideoStream
 
+			# Send video activation command a few times to ensure drone receives it
+			for i in range(3):
+				self.send_command(self.CMD_START_VIDEO, verbose=(i == 0))
+				time.sleep(0.5)
+
+			# Let FFMPEG handle RTSP negotiation directly (skip TCP pre-check —
+			# many drones don't accept raw TCP socket connects on the RTSP port)
 			self.video_stream = OpenCVVideoStream(
 				self.RTSP_URL, buffer_size=1, prefer_tcp=True,
-				max_retries=2, retry_delay=1.0, rtsp_timeout=5.0,
+				max_retries=3, retry_delay=2.0, rtsp_timeout=10.0,
+				skip_port_check=True,
 			)
-			if not self.video_stream.start(timeout=5.0):
+			if not self.video_stream.start(timeout=10.0):
 				print("Failed to open video stream")
 				return False
 

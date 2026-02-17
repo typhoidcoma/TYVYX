@@ -249,7 +249,7 @@ The new architecture **complements** rather than replaces existing code:
 **Existing (Keep):**
 - `tyvyx/drone_controller.py` - Original implementation (fallback)
 - `tyvyx/drone_controller_advanced.py` - Flight controller class
-- `tyvyx/video_stream.py` - RTSP video streaming
+- `tyvyx/video_stream.py` - Legacy video streaming (deprecated — replaced by UDP protocol stack)
 - `tyvyx/app.py` - Flask web interface
 
 **New (Turbodrone-inspired):**
@@ -356,7 +356,7 @@ rc_model.set_normalized_controls(
 | **Packet Format** | 20-byte (S2x), 85-byte (WiFi UAV) | 6-byte experimental | TYVYX-specific impl |
 | **Update Rate** | 80 Hz | 80 Hz (adopted) | ✅ Same |
 | **Profiles** | normal/precise/aggressive | Adopted | ✅ Integrated |
-| **Video** | JPEG reassembly | RTSP streaming | Keep existing |
+| **Video** | JPEG reassembly | UDP JPEG reassembly (ported from turbodrone) | ✅ Integrated |
 | **Architecture** | Protocol adapters | Adapted | ✅ Integrated |
 
 ## Files Created/Modified

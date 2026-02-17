@@ -3,9 +3,8 @@
 ## Network Details
 ```
 Drone IP:       192.168.1.1
-UDP Port:       7099
-RTSP Port:      7070
-Video URL:      rtsp://192.168.1.1:7070/webcam
+UDP Control:    7099
+UDP Video:      7070 (proprietary JPEG fragments, not RTSP)
 WiFi Pattern:   HD-720P-* | HD-FPV-* | HD720-* | FHD-*
 ```
 
@@ -154,11 +153,11 @@ python network_diagnostics.py
 
 ### No Video
 ```bash
-# Test FFmpeg installation
-ffmpeg -version
+# Check drone is reachable
+ping 192.168.1.1
 
-# Test RTSP stream directly
-ffplay rtsp://192.168.1.1:7070/webcam
+# Run UDP sniffer to check for video packets
+python -c "from tyvyx.protocols.raw_udp_sniffer import RawUdpSnifferProtocol; s = RawUdpSnifferProtocol(); s.start()"
 ```
 
 ### Python Issues

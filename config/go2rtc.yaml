@@ -1,0 +1,11 @@
+api:
+  listen: ":1984"
+
+rtsp:
+  listen: ":8554"
+
+log:
+  level: "info"
+
+# Streams are added dynamically via REST API at runtime
+# (drone IP is only known after user connects)

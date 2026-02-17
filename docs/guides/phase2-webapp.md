@@ -276,10 +276,13 @@ python -m tyvyx.app
 
 ### Video not working
 
-- Check FFmpeg is installed: `ffmpeg -version`
-- Try starting video manually in backend logs
+- Check drone is connected and reachable: `ping 192.168.1.1`
+- Check backend logs for video initialization errors
 - Check browser console for errors
-- Verify RTSP stream works: `ffplay rtsp://192.168.1.1:7070/webcam`
+- Run UDP sniffer to verify video packets are arriving:
+  ```bash
+  python -c "from tyvyx.protocols.raw_udp_sniffer import RawUdpSnifferProtocol; s = RawUdpSnifferProtocol(); s.start()"
+  ```
 
 ### CORS errors
 

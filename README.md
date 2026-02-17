@@ -4,13 +4,13 @@
 
 > Reverse-engineered AI control system for cheap Chinese hobby drones
 
-Cheap WiFi drones from Amazon — like the **K417** and similar sub-$50 models — ship with a basic Android app and no open API. This project reverse-engineers their UDP control protocol and RTSP video stream to replace the stock app with a full AI-capable control stack: computer vision, autonomous navigation, SLAM, and a modern web interface.
+Cheap WiFi drones from Amazon — like the **K417** and similar sub-$50 models — ship with a basic Android app and no open API. This project reverse-engineers their UDP control protocol and proprietary UDP video stream to replace the stock app with a full AI-capable control stack: computer vision, autonomous navigation, SLAM, and a modern web interface.
 
 The goal is to use these mass-produced, disposable hobby drones as a low-cost platform for AI and robotics research.
 
 ## Overview
 
-These drones communicate over a simple WiFi hotspot using an undocumented UDP command protocol and an RTSP video feed. By sniffing traffic between the drone and its official Android app, we reconstructed the full command set and built a Python control layer on top of it.
+These drones communicate over a simple WiFi hotspot using an undocumented UDP command protocol and a proprietary UDP video stream (JPEG fragments reassembled client-side). By sniffing traffic between the drone and its official Android app, we reconstructed the full command set and built a Python control layer on top of it.
 
 From there, the project adds what the manufacturer never intended: optical flow position estimation, YOLO object detection, autonomous flight planning, and a React web interface — all running on commodity hardware with no drone modifications required.
 
@@ -24,7 +24,7 @@ From there, the project adds what the manufacturer never intended: optical flow 
 ### Core Functionality
 
 - ✅ **UDP Command Protocol** - Reverse-engineered control commands
-- ✅ **RTSP Video Streaming** - Real-time video with OpenCV
+- ✅ **UDP Video Streaming** - Real-time video via proprietary UDP protocol
 - ✅ **Camera Switching** - Toggle between multiple cameras
 - ✅ **Device Auto-Detection** - Identify GL/TC drone types
 - ✅ **Network Diagnostics** - Connection testing and troubleshooting
@@ -101,7 +101,12 @@ TYVYX/
 │   ├── drone_controller.py          # Basic controller
 │   ├── drone_controller_advanced.py # With flight controls
 │   ├── drone_controller_yolo.py     # With object detection
-│   ├── video_stream.py              # Video utilities
+│   ├── video_stream.py              # Legacy video (deprecated)
+│   ├── frame_hub.py                 # Async MJPEG fan-out hub
+│   ├── protocols/                   # UDP video protocol adapters
+│   ├── models/                      # Video frame models
+│   ├── services/                    # Video receiver service
+│   └── utils/                       # DroppingQueue and helpers
 │   ├── network_diagnostics.py       # Connection testing
 │   └── app.py                       # Flask web interface
 │
@@ -254,7 +259,7 @@ This is experimental software - use at your own risk!
 | Service | Protocol | Address | Description |
 |---------|----------|---------|-------------|
 | **UDP Control** | UDP | 192.168.1.1:7099 | Command and control |
-| **RTSP Video** | RTSP/TCP | 192.168.1.1:7070 | Video streaming |
+| **UDP Video** | UDP | 192.168.1.1:7070 | Video streaming (proprietary JPEG fragments) |
 | **HTTP Server** | HTTP | 192.168.1.1:80 | File access |
 | **FTP Server** | FTP | 192.168.1.1:21 | File transfer |
 
@@ -264,7 +269,7 @@ See [Protocol Specification](docs/technical/protocol-specification.md) for detai
 
 **Backend**: Python 3.8+, FastAPI, Flask, OpenCV, NumPy, Ultralytics YOLO11
 **Frontend**: React 18, TypeScript, Vite, Tailwind CSS
-**Communication**: UDP, RTSP, WebSocket, REST API
+**Communication**: UDP (control + video), WebSocket, REST API
 **Development**: pytest, ruff, black, ESLint, Prettier
 
 ## Host Hardware
@@ -291,7 +296,7 @@ The RTX 3090 handles all GPU-accelerated workloads: YOLO11 inference, future SLA
 
 ## Supported Drone Models
 
-These drones all share the same WiFi + UDP + RTSP architecture and are broadly compatible:
+These drones all share the same WiFi + UDP architecture and are broadly compatible:
 
 | Model | Notes |
 |-------|-------|
@@ -301,7 +306,7 @@ These drones all share the same WiFi + UDP + RTSP architecture and are broadly c
 | HD720-* | Compatible |
 | FHD-* | Compatible |
 
-Any cheap WiFi drone that creates a hotspot at `192.168.1.1`, streams RTSP on port 7070, and accepts UDP commands on port 7099 is likely compatible. These are sold under dozens of brand names on Amazon and AliExpress — the firmware is nearly identical across all of them.
+Any cheap WiFi drone that creates a hotspot at `192.168.1.1` and accepts UDP commands on port 7099 is likely compatible. Video is received via proprietary UDP packets (not RTSP). These are sold under dozens of brand names on Amazon and AliExpress — the firmware is nearly identical across all of them.
 
 ## Acknowledgments
 

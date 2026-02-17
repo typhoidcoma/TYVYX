@@ -85,20 +85,19 @@ This guide covers common issues and solutions when working with the TYVYX drone 
    ```
    If not installed, see installation instructions in [Getting Started Guide](README.md#2-installation).
 
-2. **Test RTSP URL manually**:
+2. **Run the UDP sniffer** to check if the drone sends video packets:
    ```bash
-   ffplay rtsp://192.168.1.1:7070/webcam
+   python -c "from tyvyx.protocols.raw_udp_sniffer import RawUdpSnifferProtocol; s = RawUdpSnifferProtocol(); s.start()"
    ```
-   If this works, the issue is in the Python code.
+   If packets appear, the drone is streaming — the issue is in frame reassembly.
 
-3. **Check drone is streaming**: Video usually starts automatically when drone powers on
+3. **Check drone is powered on**: Video starts after sending `CMD_START_VIDEO` (`[0x08, 0x01]`)
 
 4. **Restart the controller**: Close and restart the drone controller
 
-5. **Increase timeout**: The stream may need more time to initialize
-   - For Phase 2 web interface, check backend logs for initialization errors
+5. **Check backend logs**: For Phase 2 web interface, check for video initialization errors
 
-6. **Check firewall**: Ensure RTSP port 7070 isn't blocked
+6. **Check firewall**: Ensure UDP ports 7099 and 7070 aren't blocked
 
 ### Video is very laggy
 
@@ -140,9 +139,9 @@ This guide covers common issues and solutions when working with the TYVYX drone 
    python -m tyvyx.app
    ```
 
-4. **Verify RTSP stream**:
+4. **Run UDP sniffer**: Check if video packets are arriving:
    ```bash
-   ffplay rtsp://192.168.1.1:7070/webcam
+   python -c "from tyvyx.protocols.raw_udp_sniffer import RawUdpSnifferProtocol; s = RawUdpSnifferProtocol(); s.start()"
    ```
 
 5. **Check browser console**: Press F12 and look for errors in the Console tab

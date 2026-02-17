@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from autonomous.api.routes import drone, video, position, network
 from autonomous.api.websocket import websocket_router
 from autonomous.services.drone_service import drone_service
+from autonomous.services.go2rtc_service import go2rtc_service
 from autonomous.services.position_service import position_service
 import yaml
 
@@ -44,6 +45,12 @@ async def lifespan(app: FastAPI):
         await drone_service.initialize()
         logger.info("✅ Drone service initialized")
 
+        # Start go2rtc for WebRTC video streaming
+        if await go2rtc_service.start():
+            logger.info("✅ go2rtc started — WebRTC available")
+        else:
+            logger.warning("⚠️ go2rtc not available — MJPEG fallback only")
+
         # Load configuration and initialize position service (Phase 3)
         config_path = Path(__file__).parent.parent.parent / "config" / "drone_config.yaml"
         if config_path.exists():
@@ -66,6 +73,11 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Drone service shut down cleanly")
     except Exception as e:
         logger.error(f"❌ Error during shutdown: {e}")
+
+    try:
+        await go2rtc_service.stop()
+    except Exception as e:
+        logger.error(f"❌ Error stopping go2rtc: {e}")
 
 
 # Create FastAPI app

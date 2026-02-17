@@ -28,7 +28,7 @@ This document provides a formal specification of the TYVYX WiFi drone communicat
 | Service | Protocol | Port | Purpose |
 |---------|----------|------|---------|
 | **UDP Control** | UDP | 7099 | Command and control |
-| **RTSP Video** | RTSP/TCP | 7070 | Real-time video streaming |
+| **UDP Video** | UDP | 7070 | Video streaming (proprietary JPEG fragments) |
 | **HTTP Server** | HTTP/TCP | 80 | File access (photos/videos) |
 | **TCP Server** | TCP | 5000 | Unknown (possibly web interface) |
 | **FTP Server** | FTP/TCP | 21 | File transfer (username: `ftp`, password: `ftp`) |
@@ -224,42 +224,32 @@ Based on common drone protocols and testing:
 
 ## Video Streaming Protocol
 
-### RTSP Video Stream
+### UDP Video Stream
 
 | Parameter | Value |
 |-----------|-------|
-| **Protocol** | RTSP (Real Time Streaming Protocol) |
-| **URL** | `rtsp://192.168.1.1:7070/webcam` |
+| **Protocol** | Proprietary UDP (JPEG fragment reassembly) |
 | **Port** | 7070 |
-| **Codec** | H.264 / MJPEG |
-| **Resolutions** | 480p, 720p, 1080p, 4K (depending on model) |
-| **Latency** | 1-3 seconds typical |
+| **Start Command** | `[0x08, 0x01]` sent via UDP to port 7099 |
+| **Codec** | JPEG (sliced, reassembled client-side) |
+| **Resolutions** | 480p, 720p (depending on model) |
 
-### Access Methods
+**Note**: These drones do **not** run an RTSP server. The video start command
+tells the drone to begin sending JPEG frame fragments as raw UDP packets.
 
-**FFmpeg**:
-```bash
-ffplay rtsp://192.168.1.1:7070/webcam
-```
+### How Video Reception Works
 
-**OpenCV (Python)**:
-```python
-import cv2
-cap = cv2.VideoCapture('rtsp://192.168.1.1:7070/webcam')
-```
+1. Send `[0x08, 0x01]` to the drone on UDP port 7099
+2. Resend every 2 seconds as a keep-alive
+3. Listen for incoming UDP packets on port 7070
+4. Parse proprietary headers (S2X-style: 8-byte header with `0x40 0x40` sync bytes)
+5. Reassemble JPEG fragments by frame ID and slice ID
+6. Validate complete frames using JPEG SOI (`0xFF 0xD8`) / EOI (`0xFF 0xD9`) markers
 
-**VLC**:
-```
-Media → Open Network Stream → rtsp://192.168.1.1:7070/webcam
-```
+### Protocol Detection
 
-### Recorded Video Files
-
-Recorded videos stored on drone can be streamed via RTSP:
-
-```
-rtsp://192.168.1.1:7070/file/DCIM/[filename]
-```
+Use the built-in diagnostic sniffer (`tyvyx/protocols/raw_udp_sniffer.py`)
+to capture raw packets and auto-detect the protocol format for unknown drone models.
 
 ---
 
@@ -375,7 +365,7 @@ The drone identifies itself via the first UDP response byte.
 4. Drone responds with device type (Byte 0)
 5. Application identifies device as GL (2) or TC (10)
 6. Application sends initialize command: [0x64]
-7. Application starts RTSP video stream: rtsp://192.168.1.1:7070/webcam
+7. Application sends video start command: [0x08, 0x01] and begins UDP video reception
 8. Heartbeat continues every 1000ms
 9. Application sends control commands as needed
 ```
@@ -439,25 +429,27 @@ while True:
     time.sleep(1.0)
 ```
 
-### Video Stream Example (OpenCV)
+### Video Stream Example (UDP Protocol)
 
 ```python
-import cv2
+from tyvyx.protocols.s2x_video_protocol import S2xVideoProtocolAdapter
 
-# Open RTSP stream
-cap = cv2.VideoCapture('rtsp://192.168.1.1:7070/webcam')
-cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce latency
+# Create protocol adapter for TEKY drone
+adapter = S2xVideoProtocolAdapter(
+    drone_ip="192.168.1.1",
+    control_port=7099,
+    video_port=7070,
+)
+adapter.start()
 
+# Read assembled JPEG frames
 while True:
-    ret, frame = cap.read()
-    if ret:
-        cv2.imshow('Drone Video', frame)
+    frame = adapter.get_frame(timeout=1.0)
+    if frame:
+        print(f"Frame {frame.frame_id}: {frame.size} bytes")
+        # frame.data contains raw JPEG bytes
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
+adapter.stop()
 ```
 
 ---

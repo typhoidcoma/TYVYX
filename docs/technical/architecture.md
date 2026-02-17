@@ -16,7 +16,7 @@ This document describes the overall architecture of the TYVYX drone control syst
 
 ## System Overview
 
-The TYVYX drone control system is a multi-layered Python and TypeScript application that interfaces with WiFi-enabled drones using UDP commands and RTSP video streaming.
+The TYVYX drone control system is a multi-layered Python and TypeScript application that interfaces with WiFi-enabled drones using UDP commands and a proprietary UDP video protocol.
 
 ### High-Level Architecture
 
@@ -47,7 +47,7 @@ The TYVYX drone control system is a multi-layered Python and TypeScript applicat
 │  └──────────────────┬──────────────────────┘                │
 └─────────────────────┼──────────────────────────────────────┘
                       │
-                      │ UDP Commands / RTSP Video
+                      │ UDP Commands / UDP Video
                       ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Core Control Layer                        │
@@ -55,17 +55,17 @@ The TYVYX drone control system is a multi-layered Python and TypeScript applicat
 │  │              TYVYX Package (tyvyx/)                  │     │
 │  │  ┌──────────────┐  ┌────────────┐  ┌───────────┐  │     │
 │  │  │ Controllers  │  │ Video      │  │ Network   │  │     │
-│  │  │              │  │ Stream     │  │ Diag      │  │     │
+│  │  │              │  │ Protocols  │  │ Diag      │  │     │
 │  │  └──────────────┘  └────────────┘  └───────────┘  │     │
 │  └────────────────┬───────────────────────────────────┘     │
 └───────────────────┼──────────────────────────────────────────┘
                     │
-                    │ UDP (7099) / RTSP (7070)
+                    │ UDP (7099 control, 7070 video)
                     ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                     TYVYX WiFi Drone                          │
 │  - UDP Command Reception (port 7099)                        │
-│  - RTSP Video Streaming (port 7070)                         │
+│  - UDP Video Streaming (port 7070, JPEG fragments)          │
 │  - HTTP File Server (port 80)                               │
 │  - FTP Server (port 21)                                     │
 └─────────────────────────────────────────────────────────────┘
@@ -117,7 +117,9 @@ The TYVYX drone control system is a multi-layered Python and TypeScript applicat
 
 **Components**:
 - **Drone Controllers** ([tyvyx/drone_controller*.py](../../tyvyx/)) - UDP command transmission
-- **Video Stream** ([tyvyx/video_stream.py](../../tyvyx/video_stream.py)) - RTSP video capture and processing
+- **Video Protocols** ([tyvyx/protocols/](../../tyvyx/protocols/)) - UDP video protocol adapters (S2X, sniffer)
+- **Video Receiver** ([tyvyx/services/video_receiver.py](../../tyvyx/services/video_receiver.py)) - Supervised video reception with auto-reconnect
+- **Frame Hub** ([tyvyx/frame_hub.py](../../tyvyx/frame_hub.py)) - Asyncio fan-out for MJPEG clients
 - **Network Diagnostics** ([tyvyx/network_diagnostics.py](../../tyvyx/network_diagnostics.py)) - Connection testing
 
 **Technologies**: Python, OpenCV, sockets, threading
@@ -128,7 +130,7 @@ The TYVYX drone control system is a multi-layered Python and TypeScript applicat
 
 **Interfaces**:
 - **UDP (7099)**: Command reception
-- **RTSP (7070)**: Video streaming
+- **UDP (7070)**: Video streaming (proprietary JPEG fragment protocol)
 - **HTTP (80)**: File access
 - **FTP (21)**: File transfer
 
@@ -150,7 +152,7 @@ The TYVYX drone control system is a multi-layered Python and TypeScript applicat
 **Key Functions**:
 ```python
 connect_to_drone()      # Establish UDP connection
-start_video()           # Initialize RTSP stream
+start_video()           # Activate UDP video receiver
 send_command(bytes)     # Send UDP commands
 ```
 
@@ -180,14 +182,14 @@ send_command(bytes)     # Send UDP commands
 
 **Dependencies**: Ultralytics YOLO11
 
-#### 4. video_stream.py
-**Purpose**: Video capture and processing utilities
+#### 4. Video Protocol Stack (`protocols/`, `services/`, `frame_hub.py`)
+**Purpose**: UDP video reception and MJPEG distribution
 
 **Responsibilities**:
-- RTSP stream initialization
-- Frame buffering
-- OpenCV integration
-- MJPEG encoding (for web interface)
+- UDP packet reception and JPEG fragment reassembly
+- Protocol adapters (S2X-style, diagnostic sniffer)
+- Supervised receiver with auto-reconnect
+- Asyncio FrameHub for multi-client MJPEG fan-out
 
 #### 5. network_diagnostics.py
 **Purpose**: Connection testing and debugging
@@ -305,12 +307,16 @@ TYVYX Drone Hardware
 
 ```
 TYVYX Drone Hardware
-        ↓ RTSP Stream (7070)
-TYVYX Video Stream (video_stream.py)
-        ↓ OpenCV Processing
+        ↓ UDP JPEG Fragments (port 7070)
+Protocol Adapter (S2X) → JPEG reassembly
+        ↓ VideoFrame objects
+VideoReceiverService → DroppingQueue
+        ↓ Frame Pump Worker thread
+FrameHub (asyncio fan-out)
+        ↓ Raw JPEG bytes per client
 FastAPI Video Route (routes/video.py)
         ↓ MJPEG over HTTP
-React Frontend (Video Element)
+React Frontend (WebRTCVideo / <img>)
         ↓
 User Display
 ```
@@ -383,7 +389,7 @@ TYVYX Controller (updates device status)
 | Protocol | Purpose |
 |----------|---------|
 | **UDP** | Command and control (port 7099) |
-| **RTSP** | Real-time video streaming (port 7070) |
+| **UDP** | Video streaming (port 7070, proprietary JPEG fragments) |
 | **HTTP** | File access and web interface (port 80) |
 | **FTP** | File transfer (port 21) |
 | **WebSocket** | Real-time telemetry (FastAPI) |

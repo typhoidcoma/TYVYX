@@ -100,6 +100,20 @@ export const videoApi = {
     const response = await api.get('/api/video/status');
     return response.data;
   },
+
+  getCapabilities: async (): Promise<{ webrtc: boolean; mjpeg: boolean; streaming: boolean }> => {
+    const response = await api.get('/api/video/capabilities');
+    return response.data;
+  },
+
+  sendWebRTCOffer: async (sdpOffer: string): Promise<string> => {
+    const response = await axios.post(
+      `${API_BASE_URL}/api/video/webrtc/offer`,
+      sdpOffer,
+      { headers: { 'Content-Type': 'application/sdp' }, responseType: 'text' },
+    );
+    return response.data;
+  },
 };
 
 // WebSocket connection for telemetry

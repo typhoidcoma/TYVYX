@@ -5,14 +5,13 @@ import { PositionMap } from './components/PositionMap'
 import { PositionIndicator } from './components/PositionIndicator'
 import { TrajectoryControls } from './components/TrajectoryControls'
 import { WifiScanner } from './components/WifiScanner'
+import { WebRTCVideo } from './components/WebRTCVideo'
 import './App.css'
 
 function App() {
   const [status, setStatus] = useState<DroneStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
-  const [videoActive, setVideoActive] = useState(false)
-
   const { updatePosition } = usePositionStore()
 
   // Poll drone status every 2 s
@@ -56,26 +55,21 @@ function App() {
   })
 
   const handleDisconnect = () => withLoading(async () => {
-    const r = await droneApi.disconnect()
-    setVideoActive(false)
-    return r
+    return await droneApi.disconnect()
   })
 
   const handleVideoToggle = () => withLoading(async () => {
-    if (videoActive || status?.video_streaming) {
+    if (status?.video_streaming) {
       await droneApi.stopVideo()
-      setVideoActive(false)
       return { message: 'Video stopped' }
     } else {
-      const r = await droneApi.startVideo()
-      if (r.success) setVideoActive(true)
-      return r
+      return await droneApi.startVideo()
     }
   })
 
   const handleSwitchCamera = (cam: number) => withLoading(() => droneApi.switchCamera(cam))
 
-  const isStreaming = videoActive && status?.video_streaming
+  const isStreaming = !!status?.video_streaming
 
   return (
     <div className="min-h-screen bg-base text-heading p-6">
@@ -109,12 +103,7 @@ function App() {
 
             <div className="bg-black aspect-video flex items-center justify-center relative">
               {isStreaming ? (
-                <img
-                  src="http://localhost:8000/api/video/feed"
-                  alt="Drone video feed"
-                  className="w-full h-full object-contain"
-                  onError={() => setVideoActive(false)}
-                />
+                <WebRTCVideo streaming={isStreaming} className="w-full h-full" />
               ) : (
                 <div className="text-dim text-center select-none">
                   <div className="text-5xl mb-3 opacity-30">⬛</div>

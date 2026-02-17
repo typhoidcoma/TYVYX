@@ -57,6 +57,8 @@ class OpenCVVideoStream:
         self._retry_delay = float(kwargs.pop('retry_delay', 1.0))
         # RTSP timeout in seconds (passed as stimeout in microseconds)
         self._rtsp_timeout = float(kwargs.pop('rtsp_timeout', 5.0))
+        # Skip TCP port pre-check (some drones don't accept raw TCP connects)
+        self._skip_port_check = bool(kwargs.pop('skip_port_check', False))
         self._cap: Optional[cv2.VideoCapture] = None
         self._thread: Optional[threading.Thread] = None
         self._stopped = True
@@ -84,11 +86,12 @@ class OpenCVVideoStream:
     def start(self, timeout: float = 5.0) -> bool:
         src = self._build_source_url()
 
-        # Quick check: is the RTSP port reachable at all?
-        if isinstance(src, str) and src.startswith('rtsp://'):
-            if not _rtsp_port_reachable(str(src), timeout=2.0):
-                print(f"RTSP port not reachable at {self.source}")
-                return False
+        # Optional TCP port pre-check (disabled by default for drones)
+        if not self._skip_port_check:
+            if isinstance(src, str) and src.startswith('rtsp://'):
+                if not _rtsp_port_reachable(str(src), timeout=2.0):
+                    print(f"RTSP port not reachable at {self.source}")
+                    return False
 
         attempt = 0
         while attempt < self._max_retries:

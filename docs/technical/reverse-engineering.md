@@ -10,24 +10,23 @@ This document contains the reverse engineering findings from the Android app for
 - **Drone IP Address**: `192.168.1.1`
 - **UDP Control Port**: `7099`
 - **TCP Server Port**: `5000`
-- **RTSP Video Stream Port**: `7070`
+- **UDP Video Port**: `7070`
 
 ## Video Stream
 
-### Video Feed URL
-```
-rtsp://192.168.1.1:7070/webcam
-```
+### Video Protocol
+The drone does **not** use RTSP. It uses a proprietary UDP protocol that sends
+JPEG frame fragments after receiving a start command.
 
-### Video Configuration
-- Protocol: RTSP (Real Time Streaming Protocol)
-- Uses IJKPlayer library for decoding
-- Supports multiple resolutions (480p, 720p, 1080p, 4K)
-- Video format: H.264/MJPEG
+- **Start Command**: `[0x08, 0x01]` sent via UDP to port 7099
+- **Video Port**: 7070 (UDP, JPEG fragments)
+- **Protocol**: S2X-style (8-byte header with `0x40 0x40` sync bytes)
+- Original Android app uses IJKPlayer library for decoding
+- Supports 480p, 720p resolutions
 
 ### HTTP Endpoints
 - **DCIM Video Thumbnails**: `http://192.168.1.1/DCIM/[filename]`
-- **RTSP Video Files**: `rtsp://192.168.1.1:7070/file/DCIM/[filename]`
+- **Recorded Videos**: Available via HTTP/FTP (not streamed)
 - **Photo Thumbnails**: `http://192.168.1.1/PHOTO/T/[filename]`
 - **Full Photos**: `http://192.168.1.1/PHOTO/O/[filename]`
 
@@ -89,7 +88,7 @@ The device type is auto-detected based on the first UDP response from the drone.
 3. Send heartbeat `{1, 1}` every 1 second
 4. Wait for response to identify device type
 5. Send initialization command `{100}`
-6. Start RTSP video stream on `rtsp://192.168.1.1:7070/webcam`
+6. Send video start command `[0x08, 0x01]` and begin UDP video reception on port 7070
 
 ### Native Commands (via JNI)
 The app uses native libraries (GLJni and TCJni) for:
@@ -136,8 +135,8 @@ The app uses native libraries (GLJni and TCJni) for:
    - Send control commands as needed
 
 2. **Video Stream**:
-   - Use OpenCV's VideoCapture with RTSP URL
-   - Alternative: Use ffmpeg or VLC libraries
+   - Use UDP protocol adapters (`tyvyx/protocols/`) for video reception
+   - Receive JPEG fragments and reassemble into complete frames
    - Process frames for display and analysis
 
 3. **Control Interface**:

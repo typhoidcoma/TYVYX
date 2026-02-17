@@ -39,7 +39,10 @@
       "Bash(powershell -Command:*)",
       "Bash(powershell \"Get-Process python* -ErrorAction SilentlyContinue | Stop-Process -Force\")",
       "Bash(ipconfig:*)",
-      "Bash(route print:*)"
+      "Bash(route print:*)",
+      "Bash(npx tsc:*)",
+      "Bash(echo:*)",
+      "Bash(xxd:*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\tesse\\.claude\\projects\\i--Projects-Drones-TEKY\\memory"

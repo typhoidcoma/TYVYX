@@ -500,12 +500,12 @@ npm run build
 
 #### Video Stream Not Working
 
-1. Verify FFmpeg: `ffmpeg -version`
-2. Test RTSP manually:
+1. Verify drone is reachable: `ping 192.168.1.1`
+2. Run the UDP sniffer to check for video packets:
    ```bash
-   ffplay rtsp://192.168.1.1:7070/webcam
+   python -c "from tyvyx.protocols.raw_udp_sniffer import RawUdpSnifferProtocol; s = RawUdpSnifferProtocol(); s.start()"
    ```
-3. Check drone is powered on and video is streaming
+3. Check drone is powered on and video start command (`[0x08, 0x01]`) has been sent
 
 ---
 

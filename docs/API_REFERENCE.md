@@ -18,8 +18,17 @@ starting guide for contributors and users.
 - `drone_controller_yolo.py`: Video processing pipeline prepared for
   YOLO11 integration and recording support.
 
-- `video_stream.py`: `OpenCVVideoStream` helper — threaded wrapper around
-  OpenCV `VideoCapture` for RTSP and low-latency reading.
+- `video_stream.py`: Legacy `OpenCVVideoStream` helper (deprecated — replaced
+  by UDP protocol stack).
+
+- `protocols/`: UDP video protocol adapters (`S2xVideoProtocolAdapter`,
+  `RawUdpSnifferProtocol`) that receive raw JPEG fragments from the drone.
+
+- `services/video_receiver.py`: `VideoReceiverService` — supervised video
+  reception with auto-reconnect on connection loss.
+
+- `frame_hub.py`: `FrameHub` — asyncio-based fan-out hub for distributing
+  JPEG frames to multiple MJPEG HTTP clients.
 
 - `network_diagnostics.py`: Network diagnostic utilities for testing
   connectivity, capturing UDP packets, and experimenting with commands.
@@ -29,7 +38,7 @@ starting guide for contributors and users.
 - `TYVYXDroneController` (in `drone_controller.py`)
   - `connect() -> bool`: Establish UDP connection and start threads.
   - `disconnect()`: Stop threads and close sockets.
-  - `start_video_stream() -> bool`: Open RTSP stream via OpenCV.
+  - `start_video_stream() -> bool`: Activate UDP video stream.
   - `get_frame() -> (bool, np.ndarray)`: Grab a frame from the stream.
   - `send_command(command: bytes) -> bool`: Send a UDP command to drone.
 
@@ -57,8 +66,7 @@ starting guide for contributors and users.
 
 - `DRONE_IP`: 192.168.1.1 (default drone address)
 - `UDP_PORT`: 7099 (control channel)
-- `RTSP_PORT`: 7070 (video stream)
-- `RTSP_URL`: rtsp://192.168.1.1:7070/webcam
+- `VIDEO_PORT`: 7070 (UDP video stream)
 
 ## Quick Start Examples
 

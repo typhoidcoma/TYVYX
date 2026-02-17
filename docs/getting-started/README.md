@@ -110,7 +110,7 @@ Additional controls:
 The TYVYX drone uses:
 1. **WiFi Access Point**: Drone creates its own WiFi network
 2. **UDP Commands**: Control commands sent to `192.168.1.1:7099`
-3. **RTSP Video**: Live video stream at `rtsp://192.168.1.1:7070/webcam`
+3. **UDP Video**: Proprietary UDP video stream on port 7070 (JPEG fragments reassembled client-side)
 
 ### Command Protocol
 
@@ -130,11 +130,13 @@ The app sends UDP packets to control the drone:
 
 ### Video Streaming
 
-The drone streams video using RTSP (Real-Time Streaming Protocol):
-- URL: `rtsp://192.168.1.1:7070/webcam`
-- Codec: H.264/MJPEG
-- Typical resolution: 720p or 1080p
-- Latency: 1-3 seconds
+The drone streams video using a proprietary UDP protocol (not RTSP):
+- **Start Command**: `[0x08, 0x01]` sent via UDP to port 7099
+- **Video Port**: 7070 (UDP, JPEG fragments)
+- **Protocol**: S2X-style (8-byte header with `0x40 0x40` sync bytes)
+- Codec: JPEG (sliced, reassembled client-side)
+- Typical resolution: 480p or 720p
+- Latency: Sub-second with UDP pipeline
 
 ## Advanced Usage
 
@@ -189,14 +191,14 @@ Then visit `http://localhost:5000` in your browser.
 **Symptoms**: Video window doesn't appear or shows error
 
 **Solutions**:
-1. Ensure FFmpeg is installed: `ffmpeg -version`
-2. Test RTSP URL manually:
+1. Verify you're connected to drone WiFi and can ping `192.168.1.1`
+2. Run the UDP sniffer to check if the drone is sending video packets:
    ```bash
-   ffplay rtsp://192.168.1.1:7070/webcam
+   python -c "from tyvyx.protocols.raw_udp_sniffer import RawUdpSnifferProtocol; s = RawUdpSnifferProtocol(); s.start()"
    ```
-3. Check drone is streaming (usually automatic)
+3. Check drone is powered on (video starts after sending `[0x08, 0x01]`)
 4. Try restarting the controller
-5. Increase timeout in code
+5. Check firewall isn't blocking UDP ports 7099 and 7070
 
 ### Video is very laggy
 
@@ -205,11 +207,8 @@ Then visit `http://localhost:5000` in your browser.
 **Solutions**:
 1. Move closer to drone (reduce WiFi distance)
 2. Reduce other WiFi interference
-3. Lower buffer size in code:
-   ```python
-   video_capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-   ```
-4. Use wired Ethernet if drone supports it
+3. The UDP pipeline uses a dropping queue (maxsize=2) to minimize latency — if frames are still lagging, check CPU/network load
+4. Close other applications using WiFi bandwidth
 
 ### Flight controls don't work
 

@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from teky.drone_controller_advanced import TEKYDroneControllerAdvanced
 from teky.video_stream import OpenCVVideoStream
+from autonomous.services.position_service import position_service
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class DroneService:
         # State
         self._last_telemetry = {}
         self._last_update = 0.0
+        self._frame_counter = 0  # For position tracking rate limiting
 
     async def initialize(self):
         """Initialize service (called on startup)"""
@@ -244,13 +246,34 @@ class DroneService:
         """
         Get current video frame
 
+        Also processes frames for position tracking at controlled rate (10 Hz).
+
         Returns:
             (success, frame) tuple
         """
         if not self._video_streaming or not self.video_stream:
             return False, None
 
-        return self.video_stream.read()
+        success, frame = self.video_stream.read()
+
+        # Process frame for position tracking
+        if success and frame is not None:
+            self._frame_counter += 1
+
+            # Process every 3rd frame for 10 Hz position updates (assuming 30 fps)
+            if self._frame_counter >= 3:
+                self._frame_counter = 0
+
+                # Process in thread pool to avoid blocking video stream
+                if position_service.is_enabled():
+                    loop = asyncio.get_event_loop()
+                    loop.run_in_executor(
+                        None,
+                        position_service.process_frame,
+                        frame.copy()
+                    )
+
+        return success, frame
 
     def is_connected(self) -> bool:
         """Check if connected to drone"""
@@ -284,15 +307,17 @@ class DroneService:
         Get telemetry data
 
         Returns:
-            Telemetry dictionary
+            Telemetry dictionary with position data (Phase 3)
         """
-        # For now, basic telemetry
-        # Phase 3+ will add position data from SLAM
         telemetry = {
             "connected": self._connected,
             "video_streaming": self._video_streaming,
             "timestamp": time.time()
         }
+
+        # Add position data if tracking is enabled (Phase 3)
+        if position_service.is_enabled():
+            telemetry["position"] = position_service.get_position()
 
         return telemetry
 

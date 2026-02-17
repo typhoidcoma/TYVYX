@@ -16,9 +16,11 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from autonomous.api.routes import drone, video
+from autonomous.api.routes import drone, video, position
 from autonomous.api.websocket import websocket_router
 from autonomous.services.drone_service import drone_service
+from autonomous.services.position_service import position_service
+import yaml
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,8 +43,19 @@ async def lifespan(app: FastAPI):
         # Initialize drone service (but don't connect yet)
         await drone_service.initialize()
         logger.info("✅ Drone service initialized")
+
+        # Load configuration and initialize position service (Phase 3)
+        config_path = Path(__file__).parent.parent.parent / "config" / "drone_config.yaml"
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+            position_service.initialize(config)
+            logger.info("✅ Position service initialized")
+        else:
+            logger.warning(f"⚠️ Config file not found: {config_path} - position service not initialized")
+
     except Exception as e:
-        logger.error(f"❌ Failed to initialize drone service: {e}")
+        logger.error(f"❌ Failed to initialize services: {e}")
 
     yield
 
@@ -58,8 +71,8 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(
     title="TEKY Autonomous Drone API",
-    description="Backend API for TEKY autonomous drone control system",
-    version="0.2.0",
+    description="Backend API for TEKY autonomous drone control system (Phase 3: Position Tracking)",
+    version="0.3.0",
     lifespan=lifespan
 )
 
@@ -80,6 +93,7 @@ app.add_middleware(
 # Include routers
 app.include_router(drone.router, prefix="/api/drone", tags=["drone"])
 app.include_router(video.router, prefix="/api/video", tags=["video"])
+app.include_router(position.router, prefix="/api/position", tags=["position"])  # Phase 3
 app.include_router(websocket_router, prefix="/ws", tags=["websocket"])
 
 
@@ -88,10 +102,11 @@ async def root():
     """Root endpoint"""
     return {
         "name": "TEKY Autonomous Drone API",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "status": "running",
         "docs": "/docs",
-        "drone_connected": drone_service.is_connected()
+        "drone_connected": drone_service.is_connected(),
+        "position_tracking": position_service.is_enabled()  # Phase 3
     }
 
 

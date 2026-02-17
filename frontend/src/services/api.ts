@@ -3,6 +3,7 @@
  */
 
 import axios from 'axios';
+import type { PositionState } from '../types/position';
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -16,7 +17,8 @@ export interface DroneStatus {
   video_streaming: boolean;
   is_running?: boolean;
   device_type?: number;
-  timestamp: float;
+  timestamp: number;
+  position?: PositionState;  // Phase 3: Present when position tracking is enabled
 }
 
 export interface CommandRequest {

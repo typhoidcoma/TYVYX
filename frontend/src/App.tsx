@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react'
 import { droneApi, DroneStatus, createWebSocket } from './services/api'
+import { usePositionStore } from './stores/positionStore'
+import { PositionMap } from './components/PositionMap'
+import { PositionIndicator } from './components/PositionIndicator'
+import { TrajectoryControls } from './components/TrajectoryControls'
 import './App.css'
 
 function App() {
@@ -7,6 +11,9 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [videoStarted, setVideoStarted] = useState(false)
+
+  // Position store (Phase 3)
+  const { updatePosition } = usePositionStore()
 
   // Poll status
   useEffect(() => {
@@ -33,6 +40,11 @@ function App() {
     if (status?.connected) {
       ws = createWebSocket((data) => {
         console.log('Telemetry:', data)
+
+        // Update position store if position data is present (Phase 3)
+        if (data?.position) {
+          updatePosition(data.position)
+        }
       })
     }
 
@@ -41,7 +53,7 @@ function App() {
         ws.close()
       }
     }
-  }, [status?.connected])
+  }, [status?.connected, updatePosition])
 
   const handleConnect = async () => {
     setLoading(true)
@@ -114,7 +126,7 @@ function App() {
         {/* Header */}
         <header className="mb-8">
           <h1 className="text-4xl font-bold mb-2">🚁 TEKY Drone Control</h1>
-          <p className="text-gray-400">Phase 2: React Frontend + FastAPI Backend</p>
+          <p className="text-gray-400">Phase 3: Position Tracking with Optical Flow</p>
         </header>
 
         {/* Status Bar */}
@@ -232,10 +244,28 @@ function App() {
           </div>
         </div>
 
+        {/* Position Tracking (Phase 3) */}
+        <div className="mt-8">
+          <h2 className="text-3xl font-bold mb-6 text-white">Position Tracking</h2>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            {/* Position Map */}
+            <div className="xl:col-span-2">
+              <PositionMap width={800} height={600} />
+            </div>
+
+            {/* Position Info and Controls */}
+            <div className="space-y-6">
+              <PositionIndicator />
+              <TrajectoryControls />
+            </div>
+          </div>
+        </div>
+
         {/* Info Footer */}
         <footer className="mt-8 text-center text-gray-500 text-sm">
-          <p>Phase 2: Manual Control • Backend: FastAPI • Frontend: React + TypeScript</p>
-          <p className="mt-1">Next: Phase 3 - Position Estimation with Optical Flow</p>
+          <p>Phase 3: Position Tracking • Optical Flow + Kalman Filter</p>
+          <p className="mt-1">Next: Phase 4 - SLAM Integration</p>
         </footer>
       </div>
     </div>

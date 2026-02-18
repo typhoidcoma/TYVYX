@@ -10,6 +10,7 @@ without any additional packages.
 
 import re
 import shutil
+import socket
 import subprocess
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -18,13 +19,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 # SSIDs matching these prefixes are flagged as likely drone networks
-DRONE_SSID_PATTERNS = ["HD-", "FHD-", "HD720", "K417", "HD-FPV", "TYVYX", "drone"]
+DRONE_SSID_PATTERNS = ["HD-", "FHD-", "HD720", "K417", "HD-FPV", "TYVYX", "drone", "Drone-"]
 
 
 @dataclass
 class WifiNetwork:
     ssid: str
-    signal: int       # 0–100 percent
+    signal: int       # 0-100 percent
     security: str     # e.g. "WPA2-Personal", "Open"
     bssid: str = ""
     is_drone: bool = field(init=False)
@@ -32,6 +33,24 @@ class WifiNetwork:
     def __post_init__(self):
         ssid_upper = self.ssid.upper()
         self.is_drone = any(p.upper() in ssid_upper for p in DRONE_SSID_PATTERNS)
+
+
+@dataclass
+class DroneAdapter:
+    """Represents a network adapter connected (or likely connected) to the drone."""
+    name: str
+    ssid: Optional[str]       # WiFi SSID if detected via WiFi, else None
+    state: str                # e.g. "connected", "disconnected"
+    local_ip: Optional[str] = None
+    gateway_ip: Optional[str] = None  # Default gateway = drone IP
+    is_drone: bool = field(init=False)
+
+    def __post_init__(self):
+        if self.ssid:
+            ssid_upper = self.ssid.upper()
+            self.is_drone = any(p.upper() in ssid_upper for p in DRONE_SSID_PATTERNS)
+        else:
+            self.is_drone = False
 
 
 def _netsh_available() -> bool:
@@ -122,14 +141,10 @@ def _make_network(d: dict) -> WifiNetwork:
     )
 
 
-def get_current_ssid() -> Optional[str]:
-    """
-    Return the SSID of the currently connected WiFi network (Windows).
-
-    Returns None if not connected or netsh is unavailable.
-    """
+def get_all_wifi_interfaces() -> List[DroneAdapter]:
+    """Enumerate all WiFi adapters and their connection state via netsh."""
     if not _netsh_available():
-        return None
+        return []
 
     try:
         result = subprocess.run(
@@ -138,16 +153,280 @@ def get_current_ssid() -> Optional[str]:
             text=True,
             timeout=5,
         )
-        output = result.stdout
     except Exception as e:
-        logger.error(f"Failed to get current SSID: {e}")
-        return None
+        logger.error(f"Failed to enumerate WiFi interfaces: {e}")
+        return []
+
+    return _parse_wlan_interfaces(result.stdout)
+
+
+def _parse_wlan_interfaces(output: str) -> List[DroneAdapter]:
+    """Parse `netsh wlan show interfaces` into per-adapter DroneAdapter list.
+
+    The output contains one block per adapter, separated by blank lines.
+    Each block has fields like:
+        Name                   : Wi-Fi
+        State                  : connected
+        SSID                   : K417-ABCDEF
+    """
+    interfaces: List[DroneAdapter] = []
+    current: dict = {}
 
     for line in output.splitlines():
-        m = re.match(r"^\s*SSID\s*:\s*(.+)$", line)
-        if m:
-            ssid = m.group(1).strip()
-            if ssid:
-                return ssid
+        stripped = line.strip()
 
+        # Blank line or end-of-block — flush current adapter
+        if not stripped:
+            if current.get("name"):
+                interfaces.append(_make_interface(current))
+                current = {}
+            continue
+
+        # "Key : Value" format
+        m = re.match(r"^(.+?)\s*:\s*(.*)$", stripped)
+        if not m:
+            continue
+
+        key = m.group(1).strip().lower()
+        val = m.group(2).strip()
+
+        if key == "name":
+            current["name"] = val
+        elif key == "state":
+            current["state"] = val.lower()
+        elif key == "ssid" and "ssid" not in current:
+            # Take first SSID field only (avoid BSSID overwriting)
+            current["ssid"] = val
+
+    # Flush last block
+    if current.get("name"):
+        interfaces.append(_make_interface(current))
+
+    return interfaces
+
+
+def _make_interface(d: dict) -> DroneAdapter:
+    return DroneAdapter(
+        name=d.get("name", ""),
+        ssid=d.get("ssid") if d.get("state") == "connected" else None,
+        state=d.get("state", "disconnected"),
+    )
+
+
+def _get_adapter_info(adapter_name: str) -> tuple:
+    """Get the IPv4 address and default gateway of a named network adapter.
+
+    Returns (local_ip, gateway_ip) — either may be None.
+    """
+    try:
+        result = subprocess.run(
+            ["ipconfig"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return (None, None)
+
+    local_ip = None
+    gateway_ip = None
+    lines = result.stdout.splitlines()
+    in_section = False
+    for line in lines:
+        # Adapter sections start with non-indented text containing the adapter name
+        if line and not line.startswith(" ") and adapter_name.lower() in line.lower():
+            in_section = True
+            local_ip = None
+            gateway_ip = None
+            continue
+        if in_section:
+            # New section starts (non-indented, non-empty line)
+            if line and not line.startswith(" "):
+                if local_ip or gateway_ip:
+                    break  # found our section, stop
+                in_section = False
+                continue
+            # Match IPv4 address
+            m = re.match(r"^\s+IPv4 Address.*?:\s*([\d.]+)", line)
+            if m:
+                local_ip = m.group(1)
+                continue
+            # Fallback: match "IP Address" for older Windows
+            m = re.match(r"^\s+IP Address.*?:\s*([\d.]+)", line)
+            if m:
+                local_ip = m.group(1)
+                continue
+            # Match Default Gateway
+            m = re.match(r"^\s+Default Gateway.*?:\s*([\d.]+)", line)
+            if m:
+                gateway_ip = m.group(1)
+                continue
+
+    return (local_ip, gateway_ip)
+
+
+def _probe_drone_udp(drone_ip: str, bind_ip: str,
+                     ports: Optional[List[int]] = None,
+                     timeout: float = 1.5) -> Optional[int]:
+    """Send a heartbeat to the drone and check if it responds.
+
+    Probes each port in `ports` (default: [7099, 8800] for E88Pro and wifi_uav).
+    Returns the port that responded, or None if no response.
+    """
+    import sys
+    if ports is None:
+        ports = [7099, 8800]
+
+    for port in ports:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(timeout)
+        try:
+            if sys.platform == "win32":
+                import ctypes
+                SIO_UDP_CONNRESET = 0x9800000C
+                ret = ctypes.c_ulong(0)
+                false = b"\x00\x00\x00\x00"
+                ctypes.windll.ws2_32.WSAIoctl(
+                    sock.fileno(), SIO_UDP_CONNRESET,
+                    false, len(false), None, 0,
+                    ctypes.byref(ret), None, None,
+                )
+            sock.bind((bind_ip, 0))
+            sock.sendto(bytes([0x01, 0x01]), (drone_ip, port))  # heartbeat
+            data, _ = sock.recvfrom(1024)
+            if len(data) > 0:
+                return port
+        except (socket.timeout, ConnectionResetError, OSError):
+            continue
+        finally:
+            sock.close()
+
+    return None
+
+
+def _find_adapter_by_gateway_probe() -> Optional[DroneAdapter]:
+    """Fallback: find any adapter whose gateway responds as a drone.
+
+    Iterates all network adapters, extracts their gateway IPs, and
+    probes each on known drone ports (7099, 8800).  Returns the first
+    adapter whose gateway responds.
+
+    Catches cases where the drone is connected via Ethernet, USB WiFi
+    adapter showing as Ethernet, or other non-WiFi interfaces.
+    """
+    try:
+        result = subprocess.run(
+            ["ipconfig"], capture_output=True, text=True, timeout=5,
+        )
+    except Exception:
+        return None
+
+    # Parse ipconfig: collect (adapter_name, local_ip, gateway_ip) tuples
+    candidates: list = []
+    lines = result.stdout.splitlines()
+    current_adapter = ""
+    current_ip = ""
+    current_gw = ""
+
+    for line in lines:
+        # Adapter header: non-indented line with ":"
+        if line and not line.startswith(" ") and ":" in line:
+            # Flush previous adapter
+            if current_adapter and current_ip and current_gw:
+                candidates.append((current_adapter, current_ip, current_gw))
+            m = re.match(r"^.*?adapter\s+(.+?)\s*:$", line)
+            current_adapter = m.group(1) if m else line.strip().rstrip(":")
+            current_ip = ""
+            current_gw = ""
+            continue
+
+        if not current_adapter:
+            continue
+
+        m = re.match(r"^\s+IPv4 Address.*?:\s*([\d.]+)", line)
+        if m:
+            current_ip = m.group(1)
+            continue
+        m = re.match(r"^\s+Default Gateway.*?:\s*([\d.]+)", line)
+        if m:
+            current_gw = m.group(1)
+
+    # Flush last adapter
+    if current_adapter and current_ip and current_gw:
+        candidates.append((current_adapter, current_ip, current_gw))
+
+    # Probe each gateway for a drone response
+    for adapter_name, adapter_ip, gateway_ip in candidates:
+        logger.debug(f"Probing gateway {gateway_ip} from {adapter_name} ({adapter_ip})...")
+        port = _probe_drone_udp(gateway_ip, bind_ip=adapter_ip)
+        if port is not None:
+            logger.info(
+                f"Drone verified at gateway {gateway_ip}:{port} via "
+                f"{adapter_name} ({adapter_ip})"
+            )
+            adapter = DroneAdapter(
+                name=adapter_name, ssid=None, state="connected",
+            )
+            adapter.is_drone = True
+            adapter.local_ip = adapter_ip
+            adapter.gateway_ip = gateway_ip
+            return adapter
+        else:
+            logger.debug(
+                f"No drone response at gateway {gateway_ip} via "
+                f"{adapter_name} ({adapter_ip}) — skipping"
+            )
+
+    return None
+
+
+def find_drone_interface() -> Optional[DroneAdapter]:
+    """Find the network adapter connected to the drone.
+
+    Strategy:
+    1. Check WiFi interfaces for a drone SSID — get both local IP and
+       gateway IP (gateway = drone IP since the drone is the AP).
+    2. Fallback: probe the gateway of every adapter for a drone response
+       on known ports (7099, 8800).
+
+    Returns None if no adapter is connected to a drone network.
+    """
+    # Strategy 1: WiFi adapter connected to a drone SSID
+    interfaces = get_all_wifi_interfaces()
+    for iface in interfaces:
+        if iface.is_drone and iface.ssid:
+            local_ip, gateway_ip = _get_adapter_info(iface.name)
+            iface.local_ip = local_ip
+            iface.gateway_ip = gateway_ip
+            if iface.local_ip:
+                logger.info(
+                    f"Drone WiFi adapter found: {iface.name} -> "
+                    f"SSID={iface.ssid}, IP={iface.local_ip}, "
+                    f"Gateway={iface.gateway_ip}"
+                )
+                return iface
+            else:
+                logger.warning(
+                    f"Adapter {iface.name} is on drone SSID "
+                    f"{iface.ssid} but has no IPv4 address"
+                )
+
+    # Strategy 2: Probe gateways on ALL adapters for a drone response
+    gateway_adapter = _find_adapter_by_gateway_probe()
+    if gateway_adapter:
+        return gateway_adapter
+
+    return None
+
+
+def get_current_ssid() -> Optional[str]:
+    """
+    Return the SSID of the currently connected WiFi network (Windows).
+
+    Returns None if not connected or netsh is unavailable.
+    """
+    interfaces = get_all_wifi_interfaces()
+    for iface in interfaces:
+        if iface.ssid:
+            return iface.ssid
     return None

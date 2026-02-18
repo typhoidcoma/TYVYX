@@ -28,8 +28,9 @@ class S2xVideoProtocolAdapter(BaseVideoProtocolAdapter):
         video_port: int = 7070,
         start_command: bytes = bytes([0x08, 0x01]),
         debug: bool = False,
+        bind_ip: str = "",
     ):
-        super().__init__(drone_ip, control_port, video_port)
+        super().__init__(drone_ip, control_port, video_port, bind_ip=bind_ip)
         self.model = S2xVideoModel()
         self._start_command = start_command
         self._debug = debug
@@ -43,12 +44,15 @@ class S2xVideoProtocolAdapter(BaseVideoProtocolAdapter):
         self._pkt_buffer: List[bytes] = []
 
         if debug:
-            print(f"[s2x] Video socket on *:{self._sock.getsockname()[1]}")
+            addr, port = self._sock.getsockname()
+            print(f"[s2x] Video socket on {addr}:{port}")
 
     # ────────── BaseVideoProtocolAdapter ────────── #
     def send_start_command(self) -> None:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                if self.bind_ip:
+                    sock.bind((self.bind_ip, 0))
                 sock.sendto(self._start_command, (self.drone_ip, self.control_port))
             if self._debug:
                 print(f"[s2x] Start command sent ({self._start_command.hex(' ')})")
@@ -89,7 +93,8 @@ class S2xVideoProtocolAdapter(BaseVideoProtocolAdapter):
                 None, 0,
                 ctypes.byref(ret), None, None,
             )
-        sock.bind(("0.0.0.0", self.video_port))
+        bind_addr = self.bind_ip or "0.0.0.0"
+        sock.bind((bind_addr, self.video_port))
         sock.settimeout(1.0)
         return sock
 

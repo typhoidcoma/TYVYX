@@ -1,26 +1,42 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-
-const API_BASE = 'http://localhost:8000'
-const WS_BASE = 'ws://localhost:8000'
+import { API_BASE_URL, WS_BASE_URL } from '../services/api'
 
 type Transport = 'connecting' | 'websocket' | 'mjpeg'
 
 interface Props {
   streaming: boolean
+  testMode?: boolean
   className?: string
 }
 
-export function DroneVideo({ streaming, className = '' }: Props) {
+interface DebugStats {
+  fps: number
+  frameSize: number
+  frameCount: number
+}
+
+export function DroneVideo({ streaming, testMode = false, className = '' }: Props) {
   const imgRef = useRef<HTMLImageElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const prevUrlRef = useRef<string | null>(null)
   const [transport, setTransport] = useState<Transport>('connecting')
+  const [debug, setDebug] = useState<DebugStats>({ fps: 0, frameSize: 0, frameCount: 0 })
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // FPS tracking refs (avoid re-renders per frame)
+  const fpsCounter = useRef(0)
+  const fpsInterval = useRef<ReturnType<typeof setInterval> | null>(null)
+  const totalCount = useRef(0)
+  const lastSize = useRef(0)
 
   const cleanup = useCallback(() => {
     if (reconnectTimer.current) {
       clearTimeout(reconnectTimer.current)
       reconnectTimer.current = null
+    }
+    if (fpsInterval.current) {
+      clearInterval(fpsInterval.current)
+      fpsInterval.current = null
     }
     if (wsRef.current) {
       wsRef.current.onclose = null
@@ -37,23 +53,47 @@ export function DroneVideo({ streaming, className = '' }: Props) {
 
   const fallbackToMjpeg = useCallback(() => {
     cleanup()
+    console.warn('[DroneVideo] Falling back to MJPEG')
     setTransport('mjpeg')
   }, [cleanup])
 
   const connectWs = useCallback(() => {
     cleanup()
     setTransport('connecting')
+    setDebug({ fps: 0, frameSize: 0, frameCount: 0 })
+    fpsCounter.current = 0
+    totalCount.current = 0
+    lastSize.current = 0
 
-    const ws = new WebSocket(`${WS_BASE}/api/video/ws`)
+    // Test mode uses /api/video/test, live mode uses /api/video/ws
+    const wsPath = testMode ? '/api/video/test' : '/api/video/ws'
+    console.log(`[DroneVideo] Connecting WebSocket to ${wsPath}...`)
+    const ws = new WebSocket(`${WS_BASE_URL}${wsPath}`)
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
+    // FPS counter: sample every second, update debug overlay
+    fpsInterval.current = setInterval(() => {
+      setDebug({
+        fps: fpsCounter.current,
+        frameSize: lastSize.current,
+        frameCount: totalCount.current,
+      })
+      fpsCounter.current = 0
+    }, 1000)
+
     ws.onopen = () => {
+      console.log('[DroneVideo] WebSocket connected')
       setTransport('websocket')
     }
 
     ws.onmessage = (e) => {
       if (!(e.data instanceof ArrayBuffer)) return
+
+      fpsCounter.current++
+      totalCount.current++
+      lastSize.current = e.data.byteLength
+
       const blob = new Blob([e.data], { type: 'image/jpeg' })
       const url = URL.createObjectURL(blob)
 
@@ -68,8 +108,8 @@ export function DroneVideo({ streaming, className = '' }: Props) {
       prevUrlRef.current = url
     }
 
-    ws.onclose = () => {
-      // Auto-reconnect after 1s, fall back to MJPEG after 3 failed attempts
+    ws.onclose = (e) => {
+      console.warn(`[DroneVideo] WebSocket closed: code=${e.code} reason=${e.reason}`)
       wsRef.current = null
       reconnectTimer.current = setTimeout(() => {
         fallbackToMjpeg()
@@ -77,21 +117,27 @@ export function DroneVideo({ streaming, className = '' }: Props) {
     }
 
     ws.onerror = () => {
+      console.error('[DroneVideo] WebSocket error')
       fallbackToMjpeg()
     }
-  }, [cleanup, fallbackToMjpeg])
+  }, [cleanup, fallbackToMjpeg, testMode])
 
   useEffect(() => {
-    if (streaming) {
+    if (streaming || testMode) {
       connectWs()
     } else {
       cleanup()
       setTransport('connecting')
     }
     return cleanup
-  }, [streaming, connectWs, cleanup])
+  }, [streaming, testMode, connectWs, cleanup])
 
-  if (!streaming) return null
+  if (!streaming && !testMode) return null
+
+  // Choose MJPEG URL based on mode
+  const mjpegUrl = testMode
+    ? `${API_BASE_URL}/api/video/test`
+    : `${API_BASE_URL}/api/video/feed`
 
   return (
     <div className={`relative ${className}`}>
@@ -107,7 +153,7 @@ export function DroneVideo({ streaming, className = '' }: Props) {
       {/* MJPEG fallback: browser-native multipart streaming */}
       {transport === 'mjpeg' && (
         <img
-          src={`${API_BASE}/api/video/feed`}
+          src={mjpegUrl}
           alt="Drone video feed"
           className="w-full h-full object-contain"
         />
@@ -120,10 +166,18 @@ export function DroneVideo({ streaming, className = '' }: Props) {
         </div>
       )}
 
-      {/* Transport badge */}
+      {/* Debug overlay — top-left */}
+      <div className="absolute top-2 left-2 px-2 py-1 rounded bg-black/70 text-[10px] font-mono leading-relaxed text-white/80">
+        <div>{debug.fps} fps</div>
+        <div>{(debug.frameSize / 1024).toFixed(1)} KB</div>
+        <div>#{debug.frameCount}</div>
+      </div>
+
+      {/* Transport badge — top-right */}
       <span className="absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-mono bg-black/60">
         {transport === 'websocket' && <span className="text-green-400">WS</span>}
         {transport === 'mjpeg' && <span className="text-orange-400">MJPEG</span>}
+        {testMode && <span className="text-yellow-400 ml-1">TEST</span>}
       </span>
     </div>
   )

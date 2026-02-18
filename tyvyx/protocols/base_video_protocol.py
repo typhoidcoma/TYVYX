@@ -12,10 +12,12 @@ class BaseVideoProtocolAdapter(ABC):
     raw payloads into VideoFrame objects via an inner VideoModel.
     """
 
-    def __init__(self, drone_ip: str, control_port: int, video_port: int):
+    def __init__(self, drone_ip: str, control_port: int, video_port: int,
+                 bind_ip: str = ""):
         self.drone_ip = drone_ip
         self.control_port = control_port
         self.video_port = video_port
+        self.bind_ip = bind_ip  # adapter IP to bind sockets to ("" = all interfaces)
         self._keepalive_thread: Optional[threading.Thread] = None
 
     # ────────── keep-alive helpers ────────── #

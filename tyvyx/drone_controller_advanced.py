@@ -231,10 +231,11 @@ class TYVYXDroneControllerAdvanced:
 	CMD_SCREEN_MODE_1 = bytes([0x09, 0x01])
 	CMD_SCREEN_MODE_2 = bytes([0x09, 0x02])
 
-	def __init__(self, drone_ip: str = "192.168.1.1"):
+	def __init__(self, drone_ip: str = "192.168.1.1", bind_ip: str = ""):
 		"""Initialize the drone controller"""
 		# Allow per-instance IP override (class vars remain as defaults)
 		self.DRONE_IP = drone_ip
+		self.bind_ip = bind_ip  # adapter IP to bind sockets to ("" = OS chooses)
 		self.RTSP_URL = f"rtsp://{drone_ip}:{self.RTSP_PORT}/webcam"
 
 		self.udp_socket: Optional[socket.socket] = None
@@ -254,6 +255,8 @@ class TYVYXDroneControllerAdvanced:
 		"""Establish UDP connection with the drone"""
 		try:
 			print(f"Connecting to drone at {self.DRONE_IP}:{self.UDP_PORT}...")
+			if self.bind_ip:
+				print(f"  Binding to adapter IP: {self.bind_ip}")
 
 			self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 			self.udp_socket.settimeout(2.0)
@@ -275,6 +278,10 @@ class TYVYXDroneControllerAdvanced:
 					None, 0,
 					ctypes.byref(ret), None, None,
 				)
+
+			# Bind to specific adapter if configured
+			if self.bind_ip:
+				self.udp_socket.bind((self.bind_ip, 0))
 
 			self.send_command(self.CMD_HEARTBEAT)
 

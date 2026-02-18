@@ -53,7 +53,18 @@
       "Bash(choco list:*)",
       "Bash(winget install:*)",
       "Bash(export PATH=\"$PATH:/c/Users/tesse/AppData/Local/Microsoft/WinGet/Links\")",
-      "Bash(ffmpeg:*)"
+      "Bash(ffmpeg:*)",
+      "Bash(powershell -NoProfile -Command 'Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object LocalPort,OwningProcess,@{N=\"\"ProcName\"\";E={\\(Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue\\).Name}}')",
+      "Bash(powershell -NoProfile -Command:*)",
+      "Bash(netsh wlan show:*)",
+      "Bash(netsh advfirewall firewall show rule:*)",
+      "Bash(netsh advfirewall show currentprofile:*)",
+      "Bash(netsh advfirewall show publicprofile:*)",
+      "Bash(netsh advfirewall firewall add rule:*)",
+      "Bash(# Check what''s at 192.168.1.1 - try to detect if it''s a router or drone curl -s --connect-timeout 3 http://192.168.1.1/)",
+      "Bash(# Check ARP table for devices on the drone subnet arp -a -N 192.168.169.2 || arp -a)",
+      "Bash(test:*)",
+      "Bash(mount:*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\tesse\\.claude\\projects\\i--Projects-Drones-TEKY\\memory"

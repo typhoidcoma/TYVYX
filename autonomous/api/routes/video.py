@@ -7,7 +7,9 @@ Provides WebSocket binary (primary) and MJPEG (fallback) transports.
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
+import asyncio
 import logging
+import time
 
 from autonomous.services.drone_service import drone_service
 
@@ -32,16 +34,25 @@ async def video_feed():
 
     async def frame_generator():
         q = await drone_service.frame_hub.register()
+        count = 0
+        t0 = time.monotonic()
+        logger.info("[mjpeg] Client connected")
         try:
             while True:
                 frame_bytes = await q.get()
                 if frame_bytes is None:
+                    logger.info("[mjpeg] Stream ended (stall signal)")
                     break
+                count += 1
+                if count == 1:
+                    logger.info("[mjpeg] First frame sent (%d bytes)", len(frame_bytes))
                 yield (
                     b"--frame\r\n"
                     b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
                 )
         finally:
+            elapsed = time.monotonic() - t0
+            logger.info("[mjpeg] Client disconnected (%d frames in %.1fs)", count, elapsed)
             await drone_service.frame_hub.unregister(q)
 
     return StreamingResponse(
@@ -59,25 +70,34 @@ async def video_ws(websocket: WebSocket):
     multipart, instant stall detection via WebSocket close.
     """
     await websocket.accept()
+    logger.info("[ws] Video WebSocket client connected")
 
     if not drone_service.is_video_streaming():
+        logger.warning("[ws] Rejected — video not streaming")
         await websocket.close(code=1013, reason="Video not streaming")
         return
 
     q = await drone_service.frame_hub.register()
+    count = 0
+    t0 = time.monotonic()
     try:
         while True:
             frame_bytes = await q.get()
             if frame_bytes is None:
-                # Stream stall — close cleanly so frontend can reconnect
+                logger.info("[ws] Stream stall signal — closing")
                 await websocket.close(code=1001, reason="Stream stalled")
                 break
+            count += 1
+            if count == 1:
+                logger.info("[ws] First frame sent (%d bytes)", len(frame_bytes))
             await websocket.send_bytes(frame_bytes)
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        logger.debug("Video WS closed: %s", e)
+        logger.debug("[ws] Closed: %s", e)
     finally:
+        elapsed = time.monotonic() - t0
+        logger.info("[ws] Client disconnected (%d frames in %.1fs)", count, elapsed)
         await drone_service.frame_hub.unregister(q)
 
 
@@ -103,3 +123,91 @@ async def video_capabilities():
         "mjpeg": True,
         "streaming": drone_service.is_video_streaming(),
     }
+
+
+# ── Test endpoints (synthetic frames, no drone needed) ────────
+
+
+def _generate_test_jpeg(frame_num: int) -> bytes:
+    """Generate a simple test-pattern JPEG using OpenCV."""
+    import cv2
+    import numpy as np
+
+    img = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    # Alternating color bars
+    colors = [
+        (0, 0, 255), (0, 255, 0), (255, 0, 0),
+        (0, 255, 255), (255, 0, 255), (255, 255, 0),
+        (255, 255, 255), (128, 128, 128),
+    ]
+    bar_w = 640 // len(colors)
+    for i, color in enumerate(colors):
+        x = i * bar_w
+        img[:, x:x + bar_w] = color
+
+    # Moving indicator (horizontal bar that scrolls down)
+    y = (frame_num * 4) % 480
+    cv2.rectangle(img, (0, y), (640, y + 8), (0, 0, 0), -1)
+
+    # Frame counter + timestamp
+    text = f"#{frame_num}  {time.strftime('%H:%M:%S')}"
+    cv2.putText(img, text, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 3)
+    cv2.putText(img, text, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+
+    cv2.putText(img, "TEST PATTERN", (180, 260), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 4)
+    cv2.putText(img, "TEST PATTERN", (180, 260), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
+
+    _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    return buf.tobytes()
+
+
+@router.websocket("/test")
+async def video_test_ws(websocket: WebSocket):
+    """
+    Test WebSocket: sends synthetic JPEG frames at ~25 fps.
+    No drone connection needed — verifies the full frontend pipeline.
+    """
+    await websocket.accept()
+    logger.info("[test-ws] Test video client connected")
+    frame_num = 0
+    try:
+        while True:
+            jpeg = _generate_test_jpeg(frame_num)
+            await websocket.send_bytes(jpeg)
+            frame_num += 1
+            await asyncio.sleep(0.04)  # ~25 fps
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.debug("[test-ws] Closed: %s", e)
+    finally:
+        logger.info("[test-ws] Disconnected after %d frames", frame_num)
+
+
+@router.get("/test")
+async def video_test_mjpeg():
+    """
+    Test MJPEG: sends synthetic JPEG frames at ~25 fps.
+    No drone connection needed — verifies the full frontend pipeline.
+    Open http://localhost:8000/api/video/test in a browser to view.
+    """
+    logger.info("[test-mjpeg] Test video client connected")
+
+    async def gen():
+        frame_num = 0
+        try:
+            while True:
+                jpeg = _generate_test_jpeg(frame_num)
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
+                )
+                frame_num += 1
+                await asyncio.sleep(0.04)
+        except asyncio.CancelledError:
+            logger.info("[test-mjpeg] Disconnected after %d frames", frame_num)
+
+    return StreamingResponse(
+        gen(), media_type="multipart/x-mixed-replace; boundary=frame"
+    )

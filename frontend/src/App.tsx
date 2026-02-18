@@ -12,6 +12,7 @@ function App() {
   const [status, setStatus] = useState<DroneStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [testVideo, setTestVideo] = useState(false)
   const { updatePosition } = usePositionStore()
 
   // Poll drone status every 2 s
@@ -102,8 +103,8 @@ function App() {
             </div>
 
             <div className="bg-black aspect-video flex items-center justify-center relative">
-              {isStreaming ? (
-                <DroneVideo streaming={isStreaming} className="w-full h-full" />
+              {(isStreaming || testVideo) ? (
+                <DroneVideo streaming={isStreaming} testMode={testVideo} className="w-full h-full" />
               ) : (
                 <div className="text-dim text-center select-none">
                   <div className="text-5xl mb-3 opacity-30">⬛</div>
@@ -165,6 +166,16 @@ function App() {
                   }`}
                 >
                   {isStreaming ? 'Stop Video' : 'Start Video'}
+                </button>
+                <button
+                  onClick={() => setTestVideo(v => !v)}
+                  className={`px-4 py-2 rounded font-medium text-sm transition-colors ${
+                    testVideo
+                      ? 'bg-yellow-700 hover:bg-yellow-600'
+                      : 'bg-panel hover:bg-border text-dim'
+                  }`}
+                >
+                  {testVideo ? 'Stop Test' : 'Test'}
                 </button>
               </div>
             </section>

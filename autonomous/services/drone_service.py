@@ -2,7 +2,7 @@
 Drone Service
 
 High-level service that manages drone operations.
-Wraps existing TYVYXDroneControllerAdvanced for use in FastAPI.
+Supports both E88Pro (S2x) and WiFi UAV (K417) protocols.
 """
 
 import asyncio
@@ -22,8 +22,11 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from tyvyx.drone_controller_advanced import TYVYXDroneControllerAdvanced
+from tyvyx.wifi_uav_controller import WifiUavDroneController
 from tyvyx.services.video_receiver import VideoReceiverService
 from tyvyx.protocols.s2x_video_protocol import S2xVideoProtocolAdapter
+from tyvyx.protocols.wifi_uav_video_protocol import WifiUavVideoProtocolAdapter
+from tyvyx.protocols.push_jpeg_video_protocol import PushJpegVideoProtocolAdapter
 from tyvyx.protocols.raw_udp_sniffer import RawUdpSnifferProtocol
 from tyvyx.utils.dropping_queue import DroppingQueue
 from tyvyx.frame_hub import FrameHub
@@ -34,21 +37,38 @@ logger = logging.getLogger(__name__)
 # Thread pool for position processing (shared, avoid blocking video stream)
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="position")
 
+# Protocol type constants
+PROTOCOL_E88PRO = "e88pro"
+PROTOCOL_WIFI_UAV = "wifi_uav"
+
+
+def detect_protocol(drone_ip: str) -> str:
+    """Detect drone protocol based on IP address.
+
+    WiFi UAV drones (K417, etc.) use 192.168.169.x subnet.
+    E88Pro drones use 192.168.1.x subnet.
+    """
+    if drone_ip.startswith("192.168.169."):
+        return PROTOCOL_WIFI_UAV
+    return PROTOCOL_E88PRO
+
 
 class DroneService:
     """
     High-level drone service
 
     Singleton service that manages drone connection, video streaming,
-    and provides async interface to existing TYVYX controller.
+    and provides async interface to TYVYX controllers.
+    Supports both E88Pro and WiFi UAV protocol families.
     """
 
     def __init__(self):
-        self.drone: Optional[TYVYXDroneControllerAdvanced] = None
+        self.drone = None  # TYVYXDroneControllerAdvanced or WifiUavDroneController
 
         self._connected = False
         self._video_streaming = False
         self._video_protocol = None
+        self._drone_protocol = None  # "e88pro" or "wifi_uav"
 
         # State
         self._last_telemetry = {}
@@ -72,20 +92,32 @@ class DroneService:
         if self._connected:
             await self.disconnect()
 
-    async def connect(self, drone_ip: str = "192.168.1.1") -> bool:
+    async def connect(self, drone_ip: str,
+                      bind_ip: str = "",
+                      protocol: str = "") -> bool:
         if self._connected:
             logger.warning("Already connected to drone")
             return True
 
         try:
-            logger.info(f"Connecting to drone at {drone_ip}...")
-            self.drone = TYVYXDroneControllerAdvanced(drone_ip=drone_ip)
+            # Auto-detect protocol if not explicitly provided
+            self._drone_protocol = protocol or detect_protocol(drone_ip)
+            self._bind_ip = bind_ip
+
+            logger.info(f"Connecting to drone at {drone_ip} "
+                        f"(protocol={self._drone_protocol}, bind_ip={bind_ip or 'auto'})...")
+
+            if self._drone_protocol == PROTOCOL_WIFI_UAV:
+                self.drone = WifiUavDroneController(drone_ip=drone_ip, bind_ip=bind_ip)
+            else:
+                self.drone = TYVYXDroneControllerAdvanced(drone_ip=drone_ip, bind_ip=bind_ip)
+
             loop = asyncio.get_event_loop()
             connected = await loop.run_in_executor(None, self.drone.connect)
 
             if connected:
                 self._connected = True
-                logger.info("Connected to drone")
+                logger.info(f"Connected to drone (protocol={self._drone_protocol})")
                 return True
             else:
                 logger.error("Failed to connect to drone")
@@ -111,93 +143,150 @@ class DroneService:
 
             self._connected = False
             self.drone = None
+            self._drone_protocol = None
             logger.info("Disconnected from drone")
 
         except Exception as e:
             logger.error(f"Error disconnecting: {e}")
 
-    async def start_video(self, protocol: str = "s2x") -> dict:
+    async def start_video(self, protocol: str = "") -> dict:
         """
         Start video stream using UDP video receiver.
 
         Args:
-            protocol: "s2x" (default), "sniffer" (diagnostic)
+            protocol: "s2x" / "wifi_uav" (auto-detected if empty), "sniffer" (diagnostic)
 
         Returns:
             dict with 'success' bool and 'message' str
         """
         if not self._connected or not self.drone:
-            return {"success": False, "message": "Not connected to drone — connect first"}
+            return {"success": False, "message": "Not connected to drone - connect first"}
 
         if self._video_streaming:
             return {"success": True, "message": "Video already streaming"}
 
+        # Default video protocol based on drone protocol
+        if not protocol:
+            if self._drone_protocol == PROTOCOL_WIFI_UAV:
+                protocol = "wifi_uav"
+            else:
+                protocol = "s2x"
+
         try:
             logger.info(f"Starting video stream (protocol={protocol})...")
 
-            # Send CMD_START_VIDEO to the drone a few times
-            loop = asyncio.get_event_loop()
-            for i in range(3):
-                await loop.run_in_executor(
-                    None, self.drone.send_command, self.drone.CMD_START_VIDEO
-                )
-                await asyncio.sleep(0.3)
-
-            # Choose protocol adapter
-            if protocol == "s2x":
-                adapter_cls = S2xVideoProtocolAdapter
-                adapter_args = {
-                    "drone_ip": self.drone.DRONE_IP,
-                    "control_port": self.drone.UDP_PORT,
-                    "video_port": 7070,
-                    "start_command": self.drone.CMD_START_VIDEO,
-                    "debug": True,
-                }
+            if protocol == "wifi_uav":
+                return await self._start_video_wifi_uav()
+            elif protocol == "s2x":
+                return await self._start_video_s2x()
             elif protocol == "sniffer":
-                adapter_cls = RawUdpSnifferProtocol
-                adapter_args = {
-                    "drone_ip": self.drone.DRONE_IP,
-                    "control_port": self.drone.UDP_PORT,
-                    "video_port": 7070,
-                    "start_command": self.drone.CMD_START_VIDEO,
-                }
+                return await self._start_video_sniffer()
             else:
                 return {"success": False, "message": f"Unknown protocol: {protocol}"}
-
-            # Create and start video receiver
-            self._raw_frame_queue = DroppingQueue(maxsize=2)
-            self._video_receiver = VideoReceiverService(
-                protocol_adapter_class=adapter_cls,
-                protocol_adapter_args=adapter_args,
-                frame_queue=self._raw_frame_queue,
-            )
-            self._video_receiver.start()
-
-            # Start frame pump (bridge thread -> asyncio FrameHub)
-            self._pump_stop = threading.Event()
-            main_loop = asyncio.get_running_loop()
-            self._pump_thread = threading.Thread(
-                target=self._frame_pump_worker,
-                args=(
-                    self._raw_frame_queue,
-                    self.frame_hub,
-                    self._pump_stop,
-                    main_loop,
-                ),
-                daemon=True,
-                name="FramePump",
-            )
-            self._pump_thread.start()
-
-            self._video_streaming = True
-            self._video_protocol = protocol
-            logger.info(f"Video stream started (protocol={protocol})")
-
-            return {"success": True, "message": f"Video started (protocol={protocol})"}
 
         except Exception as e:
             logger.error(f"Error starting video: {e}", exc_info=True)
             return {"success": False, "message": f"Video error: {e}"}
+
+    async def _start_video_wifi_uav(self) -> dict:
+        """Start video using push-based JPEG protocol (K417 / Drone-XXXXXX).
+
+        The drone sends JPEG fragments continuously after receiving
+        START_STREAM — no per-frame request needed.  Packets use the
+        0x93 0x01 header format with payload at byte 56.
+        """
+        adapter_cls = PushJpegVideoProtocolAdapter
+        adapter_args = {
+            "drone_ip": self.drone.DRONE_IP,
+            "control_port": self.drone.UDP_PORT,
+            "video_port": self.drone.UDP_PORT,
+            "bind_ip": getattr(self, '_bind_ip', ""),
+            "debug": True,
+        }
+
+        return self._start_video_pipeline(adapter_cls, adapter_args, "wifi_uav")
+
+    async def _start_video_s2x(self) -> dict:
+        """Start video using S2x/E88Pro protocol."""
+        loop = asyncio.get_event_loop()
+
+        # Select front camera first (required by E88Pro before video flows)
+        await loop.run_in_executor(
+            None, self.drone.send_command, self.drone.CMD_CAMERA_1
+        )
+        await asyncio.sleep(0.3)
+
+        # Send CMD_START_VIDEO to the drone a few times
+        for i in range(3):
+            await loop.run_in_executor(
+                None, self.drone.send_command, self.drone.CMD_START_VIDEO
+            )
+            await asyncio.sleep(0.3)
+
+        adapter_cls = S2xVideoProtocolAdapter
+        adapter_args = {
+            "drone_ip": self.drone.DRONE_IP,
+            "control_port": self.drone.UDP_PORT,
+            "video_port": 7070,
+            "start_command": self.drone.CMD_START_VIDEO,
+            "debug": True,
+            "bind_ip": getattr(self, '_bind_ip', ""),
+        }
+
+        return self._start_video_pipeline(adapter_cls, adapter_args, "s2x")
+
+    async def _start_video_sniffer(self) -> dict:
+        """Start video using raw UDP sniffer (diagnostic)."""
+        loop = asyncio.get_event_loop()
+        for i in range(3):
+            await loop.run_in_executor(
+                None, self.drone.send_command, self.drone.CMD_START_VIDEO
+            )
+            await asyncio.sleep(0.3)
+
+        adapter_cls = RawUdpSnifferProtocol
+        adapter_args = {
+            "drone_ip": self.drone.DRONE_IP,
+            "control_port": self.drone.UDP_PORT,
+            "video_port": 7070,
+            "start_command": self.drone.CMD_START_VIDEO,
+            "bind_ip": getattr(self, '_bind_ip', ""),
+        }
+
+        return self._start_video_pipeline(adapter_cls, adapter_args, "sniffer")
+
+    def _start_video_pipeline(self, adapter_cls, adapter_args: dict,
+                              protocol_name: str) -> dict:
+        """Common video pipeline setup for all protocols."""
+        self._raw_frame_queue = DroppingQueue(maxsize=2)
+        self._video_receiver = VideoReceiverService(
+            protocol_adapter_class=adapter_cls,
+            protocol_adapter_args=adapter_args,
+            frame_queue=self._raw_frame_queue,
+        )
+        self._video_receiver.start()
+
+        # Start frame pump (bridge thread -> asyncio FrameHub)
+        self._pump_stop = threading.Event()
+        main_loop = asyncio.get_running_loop()
+        self._pump_thread = threading.Thread(
+            target=self._frame_pump_worker,
+            args=(
+                self._raw_frame_queue,
+                self.frame_hub,
+                self._pump_stop,
+                main_loop,
+            ),
+            daemon=True,
+            name="FramePump",
+        )
+        self._pump_thread.start()
+
+        self._video_streaming = True
+        self._video_protocol = protocol_name
+        logger.info(f"Video stream started (protocol={protocol_name})")
+
+        return {"success": True, "message": f"Video started (protocol={protocol_name})"}
 
     @staticmethod
     def _frame_pump_worker(raw_q, frame_hub, stop_event, loop):
@@ -205,18 +294,37 @@ class DroneService:
         Also feeds position tracking every 3rd frame.
         Detects stream stalls and notifies clients (borrowed from turbodrone)."""
         frame_counter = 0
+        total_frames = 0
         first_frame_seen = False
         last_frame_time = time.monotonic()
+        last_log_time = time.monotonic()
         stall_notified = False
         STALL_TIMEOUT = 3.0
+        LOG_INTERVAL = 5.0  # print stats every 5s
 
         while not stop_event.is_set():
             try:
                 frame = raw_q.get(timeout=1.0)
                 if frame and frame.data:
+                    now = time.monotonic()
+                    if not first_frame_seen:
+                        logger.info("[pump] First frame received (%d bytes)", len(frame.data))
                     first_frame_seen = True
-                    last_frame_time = time.monotonic()
+                    last_frame_time = now
                     stall_notified = False
+                    total_frames += 1
+
+                    # Periodic stats
+                    elapsed = now - last_log_time
+                    if elapsed >= LOG_INTERVAL:
+                        fps = total_frames / elapsed
+                        clients = len(frame_hub._clients)
+                        logger.info(
+                            "[pump] %.1f fps | %d bytes/frame | %d clients | %d total frames",
+                            fps, len(frame.data), clients, total_frames,
+                        )
+                        total_frames = 0
+                        last_log_time = now
 
                     # Publish raw JPEG to MJPEG/WS clients
                     asyncio.run_coroutine_threadsafe(
@@ -232,17 +340,18 @@ class DroneService:
                         if img is not None:
                             _executor.submit(position_service.process_frame, img)
             except queue.Empty:
-                # Stream stall detection: close clients if no frames for too long
-                if first_frame_seen and not stall_notified:
-                    if (time.monotonic() - last_frame_time) > STALL_TIMEOUT:
+                # Stream stall detection: notify clients periodically while stalled
+                if first_frame_seen and (time.monotonic() - last_frame_time) > STALL_TIMEOUT:
+                    if not stall_notified:
+                        logger.warning("[pump] Stream stall detected (no frames for %.1fs)", STALL_TIMEOUT)
                         stall_notified = True
-                        logger.warning("Video stream stall detected (no frames for %.1fs)", STALL_TIMEOUT)
-                        try:
-                            asyncio.run_coroutine_threadsafe(
-                                frame_hub.publish(None), loop
-                            )
-                        except Exception:
-                            pass
+                    # Re-publish None every cycle so new clients get the signal too
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            frame_hub.publish(None), loop
+                        )
+                    except Exception:
+                        pass
                 continue
             except Exception as e:
                 logger.error(f"Frame pump error: {e}")
@@ -343,7 +452,9 @@ class DroneService:
         status = {
             "connected": self._connected,
             "video_streaming": self._video_streaming,
-            "timestamp": time.time()
+            "timestamp": time.time(),
+            "bind_ip": getattr(self, '_bind_ip', None),
+            "drone_protocol": self._drone_protocol,
         }
 
         if self.drone:

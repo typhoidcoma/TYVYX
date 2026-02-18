@@ -10,6 +10,7 @@ from typing import Optional
 import logging
 
 from autonomous.services.drone_service import drone_service
+from autonomous.services.network_service import find_drone_interface
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,9 @@ router = APIRouter()
 
 # Request/Response Models
 class ConnectRequest(BaseModel):
-    drone_ip: Optional[str] = "192.168.1.1"
+    drone_ip: Optional[str] = ""  # auto-detect from WiFi adapter
+    bind_ip: Optional[str] = ""
+    protocol: Optional[str] = ""  # "e88pro" | "wifi_uav" | "" (auto-detect)
 
 
 class CommandRequest(BaseModel):
@@ -32,6 +35,8 @@ class StatusResponse(BaseModel):
     is_running: Optional[bool] = None
     device_type: Optional[int] = None
     timestamp: float
+    bind_ip: Optional[str] = None
+    drone_protocol: Optional[str] = None
 
 
 # Endpoints
@@ -47,12 +52,36 @@ async def connect(request: ConnectRequest):
         Connection status
     """
     try:
-        success = await drone_service.connect(request.drone_ip)
+        bind_ip = request.bind_ip or ""
+        drone_ip = request.drone_ip or ""
+
+        # Auto-detect adapter, bind IP, and drone IP (gateway) from WiFi
+        drone_iface = find_drone_interface()
+
+        if not drone_ip and drone_iface and drone_iface.gateway_ip:
+            drone_ip = drone_iface.gateway_ip  # gateway = drone IP
+            logger.info(f"Auto-detected drone IP from gateway: {drone_ip}")
+
+        if not bind_ip and drone_iface and drone_iface.local_ip:
+            bind_ip = drone_iface.local_ip
+            logger.info(f"Auto-detected bind IP: {drone_iface.name} -> {bind_ip}")
+
+        if not drone_ip:
+            raise HTTPException(
+                status_code=400,
+                detail="No drone detected. Connect to a drone WiFi hotspot "
+                       "or provide drone_ip explicitly."
+            )
+
+        success = await drone_service.connect(
+            drone_ip, bind_ip=bind_ip, protocol=request.protocol or ""
+        )
 
         if success:
             return {
                 "success": True,
-                "message": f"Connected to drone at {request.drone_ip}",
+                "message": f"Connected to drone at {drone_ip}",
+                "bind_ip": bind_ip or None,
                 "status": drone_service.get_status()
             }
         else:
@@ -61,6 +90,8 @@ async def connect(request: ConnectRequest):
                 detail="Failed to connect to drone"
             )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in connect endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -126,7 +157,7 @@ async def send_command(request: CommandRequest):
         params = request.params or {}
 
         if action == "start_video":
-            protocol = params.get("protocol", "s2x")
+            protocol = params.get("protocol", "")  # empty = auto-detect
             result = await drone_service.start_video(protocol=protocol)
             return {"success": result["success"], "message": result["message"]}
 

@@ -14,7 +14,7 @@ import type {
   ResetRequest,
 } from '../types/position';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import { API_BASE_URL } from './api';
 
 /**
  * Position API client

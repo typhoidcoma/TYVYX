@@ -5,7 +5,9 @@
 import axios from 'axios';
 import type { PositionState } from '../types/position';
 
-const API_BASE_URL = 'http://localhost:8000';
+export const API_PORT = import.meta.env.VITE_API_PORT || '8000';
+export const API_BASE_URL = `http://localhost:${API_PORT}`;
+export const WS_BASE_URL = `ws://localhost:${API_PORT}`;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -18,6 +20,8 @@ export interface DroneStatus {
   is_running?: boolean;
   device_type?: number;
   timestamp: number;
+  bind_ip?: string | null;
+  drone_protocol?: string | null;
   position?: PositionState;  // Phase 3: Present when position tracking is enabled
 }
 
@@ -33,8 +37,10 @@ export interface CommandResponse {
 
 // Drone Control APIs
 export const droneApi = {
-  connect: async (droneIp: string = '192.168.1.1') => {
-    const response = await api.post('/api/drone/connect', { drone_ip: droneIp });
+  connect: async (droneIp?: string) => {
+    const response = await api.post('/api/drone/connect', {
+      drone_ip: droneIp || '',  // empty = auto-detect from WiFi adapter
+    });
     return response.data;
   },
 
@@ -83,6 +89,9 @@ export interface ScanResult {
   networks: WifiNetwork[];
   current_ssid: string | null;
   connected_to_drone: boolean;
+  drone_adapter_ip: string | null;
+  drone_adapter_name: string | null;
+  drone_ip: string | null;
 }
 
 export const networkApi = {
@@ -101,24 +110,15 @@ export const videoApi = {
     return response.data;
   },
 
-  getCapabilities: async (): Promise<{ webrtc: boolean; mjpeg: boolean; streaming: boolean }> => {
+  getCapabilities: async (): Promise<{ websocket: boolean; mjpeg: boolean; streaming: boolean }> => {
     const response = await api.get('/api/video/capabilities');
-    return response.data;
-  },
-
-  sendWebRTCOffer: async (sdpOffer: string): Promise<string> => {
-    const response = await axios.post(
-      `${API_BASE_URL}/api/video/webrtc/offer`,
-      sdpOffer,
-      { headers: { 'Content-Type': 'application/sdp' }, responseType: 'text' },
-    );
     return response.data;
   },
 };
 
 // WebSocket connection for telemetry
 export const createWebSocket = (onMessage: (data: any) => void): WebSocket => {
-  const ws = new WebSocket(`ws://localhost:8000/ws/telemetry`);
+  const ws = new WebSocket(`${WS_BASE_URL}/ws/telemetry`);
 
   ws.onmessage = (event) => {
     try {

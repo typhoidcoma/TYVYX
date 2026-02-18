@@ -38,7 +38,9 @@ export const WifiScanner: React.FC = () => {
     if (result.connected_to_drone) {
       pill = 'border-green-700 bg-green-900/20 text-green-300';
       dot = '●';
-      label = `Drone WiFi: ${result.current_ssid}`;
+      label = result.drone_ip
+        ? `Drone WiFi: ${result.current_ssid} → ${result.drone_ip}`
+        : `Drone WiFi: ${result.current_ssid}`;
     } else if (result.current_ssid) {
       pill = 'border-orange-700 bg-orange-900/15 text-orange-300';
       dot = '◐';

@@ -25,8 +25,9 @@ class RawUdpSnifferProtocol(BaseVideoProtocolAdapter):
         video_port: int = 7070,
         start_command: bytes = bytes([0x08, 0x01]),
         max_log_packets: int = 50,
+        bind_ip: str = "",
     ):
-        super().__init__(drone_ip, control_port, video_port)
+        super().__init__(drone_ip, control_port, video_port, bind_ip=bind_ip)
         self._start_command = start_command
         self._max_log_packets = max_log_packets
 
@@ -46,6 +47,8 @@ class RawUdpSnifferProtocol(BaseVideoProtocolAdapter):
 
     def send_start_command(self) -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            if self.bind_ip:
+                sock.bind((self.bind_ip, 0))
             sock.sendto(self._start_command, (self.drone_ip, self.control_port))
         print(f"[sniffer] Start command sent ({self._start_command.hex(' ')}) "
               f"to {self.drone_ip}:{self.control_port}")
@@ -53,9 +56,10 @@ class RawUdpSnifferProtocol(BaseVideoProtocolAdapter):
     def create_receiver_socket(self) -> socket.socket:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("0.0.0.0", self.video_port))
+        bind_addr = self.bind_ip or "0.0.0.0"
+        sock.bind((bind_addr, self.video_port))
         sock.settimeout(1.0)
-        print(f"[sniffer] Listening on 0.0.0.0:{self.video_port}")
+        print(f"[sniffer] Listening on {bind_addr}:{self.video_port}")
         return sock
 
     def handle_payload(self, payload: bytes) -> Optional[VideoFrame]:

@@ -7,7 +7,6 @@ import { TrajectoryControls } from './components/TrajectoryControls'
 import { WifiScanner } from './components/WifiScanner'
 import { DroneVideo } from './components/DroneVideo'
 import { FlightControls } from './components/FlightControls'
-import './App.css'
 
 function App() {
   const [status, setStatus] = useState<DroneStatus | null>(null)

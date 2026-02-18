@@ -270,6 +270,243 @@ def check_h264(packets):
             print(f"    @{offset:3d}: {hex_str}  |{ascii_str}|")
 
 
+def analyze_fragment_fields(packets):
+    """Map header bytes to BL-UAVSDK's image_fragment_header fields.
+
+    SDK structure (from libuav_lib.so reverse engineering):
+      - magic_num:       identifies packet type
+      - i_fragment_id:   fragment index within frame
+      - i_fragment_total: total fragments in this frame
+      - i_seq_fly:       frame sequence number
+      - i_len:           payload length
+      - i_payload:       payload start offset
+    """
+    print(f"\n{'='*70}")
+    print(f"BL-UAVSDK FRAGMENT FIELD ANALYSIS")
+    print(f"{'='*70}")
+
+    if len(packets) < 10:
+        print("  Not enough packets for analysis")
+        return
+
+    # Group packets into frames using byte 32 == 0x00 (known frame boundary)
+    frames = []
+    current_frame = []
+    for data, addr, ts in packets:
+        if len(data) < 56:
+            continue
+        if data[0:2] != b"\x93\x01":
+            continue
+        is_first = (data[32] == 0x00)
+        if is_first and current_frame:
+            frames.append(current_frame)
+            current_frame = []
+        current_frame.append(data)
+    if current_frame:
+        frames.append(current_frame)
+
+    print(f"\n  Assembled {len(frames)} frames from {len(packets)} packets")
+
+    # For each frame, show all header fields
+    print(f"\n  --- Per-frame fragment analysis (first 10 frames) ---")
+    for fi, frame_pkts in enumerate(frames[:10]):
+        n = len(frame_pkts)
+        print(f"\n  Frame {fi}: {n} fragments")
+        for pi, pkt in enumerate(frame_pkts):
+            # Test various 16-bit LE fields as potential fragment counters
+            b2_3 = struct.unpack_from("<H", pkt, 2)[0]    # bytes 2-3
+            b4_5 = struct.unpack_from("<H", pkt, 4)[0]    # bytes 4-5
+            b6_7 = struct.unpack_from("<H", pkt, 6)[0]    # bytes 6-7
+            b8_9 = struct.unpack_from("<H", pkt, 8)[0]    # bytes 8-9
+            b10_11 = struct.unpack_from("<H", pkt, 10)[0]
+            b12_13 = struct.unpack_from("<H", pkt, 12)[0]
+            b14_15 = struct.unpack_from("<H", pkt, 14)[0]
+            b16_17 = struct.unpack_from("<H", pkt, 16)[0]  # known: frame_id
+            b32_33 = struct.unpack_from("<H", pkt, 32)[0]  # known: frag_id
+            b34_35 = struct.unpack_from("<H", pkt, 34)[0]
+            b36_37 = struct.unpack_from("<H", pkt, 36)[0]
+            b38_39 = struct.unpack_from("<H", pkt, 38)[0]
+
+            # Also try 32-bit LE fields
+            b4_7 = struct.unpack_from("<I", pkt, 4)[0]
+            b8_11 = struct.unpack_from("<I", pkt, 8)[0]
+
+            payload_len = len(pkt) - 56
+
+            if pi < 5 or pi == n - 1:
+                print(f"    [{pi:2d}] size={len(pkt):4d}  pay={payload_len:4d}  "
+                      f"b[2:4]={b2_3:5d}  b[4:6]={b4_5:5d}  b[6:8]={b6_7:5d}  "
+                      f"b[8:10]={b8_9:5d}  b[10:12]={b10_11:5d}  b[12:14]={b12_13:5d}  "
+                      f"b[14:16]={b14_15:5d}  b[16:18]={b16_17:5d}  b[32:34]={b32_33:5d}  "
+                      f"b[34:36]={b34_35:5d}  b[36:38]={b36_37:5d}  b[38:40]={b38_39:5d}")
+            elif pi == 5:
+                print(f"    ... ({n - 6} more fragments) ...")
+
+    # Heuristic: find which field correlates with fragment count
+    print(f"\n  --- Candidate for fragment_total ---")
+    for fi, frame_pkts in enumerate(frames[:20]):
+        n = len(frame_pkts)
+        first = frame_pkts[0]
+        # Check various offsets in the first packet for a value == n
+        candidates = []
+        for off in range(2, 56, 2):
+            if off + 2 <= len(first):
+                val = struct.unpack_from("<H", first, off)[0]
+                if val == n:
+                    candidates.append(f"b[{off}:{off+2}]={val}")
+        if candidates:
+            print(f"  Frame {fi} ({n} frags): MATCH at {', '.join(candidates)}")
+        else:
+            # Also check single bytes
+            for off in range(2, 56):
+                if first[off] == n:
+                    candidates.append(f"byte[{off}]={n}")
+            if candidates:
+                print(f"  Frame {fi} ({n} frags): byte MATCH at {', '.join(candidates)}")
+            else:
+                print(f"  Frame {fi} ({n} frags): no match found")
+
+    # Heuristic: find which field correlates with payload length
+    print(f"\n  --- Candidate for payload length field ---")
+    for pkt, _, _ in packets[:10]:
+        if len(pkt) < 56 or pkt[0:2] != b"\x93\x01":
+            continue
+        payload_len = len(pkt) - 56
+        candidates = []
+        for off in range(2, 56, 2):
+            if off + 2 <= len(pkt):
+                val = struct.unpack_from("<H", pkt, off)[0]
+                if val == payload_len:
+                    candidates.append(f"b[{off}:{off+2}]")
+                if val == len(pkt):
+                    candidates.append(f"b[{off}:{off+2}]=pkt_len")
+        if candidates:
+            print(f"  pkt size={len(pkt)} pay={payload_len}: {', '.join(candidates)}")
+
+    # Full hex dump of first packet header
+    print(f"\n  --- Full header hex dump (first packet of first frame) ---")
+    if frames:
+        pkt = frames[0][0]
+        for row_start in range(0, 56, 16):
+            row_end = min(row_start + 16, 56)
+            hex_bytes = " ".join(f"{pkt[i]:02x}" for i in range(row_start, row_end))
+            dec_bytes = " ".join(f"{pkt[i]:3d}" for i in range(row_start, row_end))
+            print(f"    @{row_start:3d}: {hex_bytes}")
+            print(f"          {dec_bytes}")
+
+    # Hex dump of first packet of second frame (to compare)
+    if len(frames) >= 2:
+        print(f"\n  --- Full header hex dump (first packet of SECOND frame) ---")
+        pkt = frames[1][0]
+        for row_start in range(0, 56, 16):
+            row_end = min(row_start + 16, 56)
+            hex_bytes = " ".join(f"{pkt[i]:02x}" for i in range(row_start, row_end))
+            print(f"    @{row_start:3d}: {hex_bytes}")
+
+
+def probe_port_8801(sock, drone_ip):
+    """Probe port 8801 to see if the drone responds to control commands there."""
+    print(f"\n{'='*70}")
+    print(f"PORT 8801 PROBE (BL-UAVSDK control port)")
+    print(f"{'='*70}")
+
+    # Try sending START_STREAM to port 8801
+    test_packets = [
+        ("START_STREAM", START_STREAM, 8801),
+        ("START_STREAM", START_STREAM, 8800),  # baseline comparison
+        ("0x66 neutral", b"\x66\x80\x80\x80\x80\x00\x00\x99", 8801),
+        ("0x66 neutral", b"\x66\x80\x80\x80\x80\x00\x00\x99", 8800),
+    ]
+
+    for name, data, port in test_packets:
+        try:
+            sock.sendto(data, (drone_ip, port))
+            print(f"  Sent {name} ({len(data)} bytes) to {drone_ip}:{port}")
+        except OSError as e:
+            print(f"  Error sending to port {port}: {e}")
+
+    # Listen for any responses
+    print(f"\n  Listening for responses (2s)...")
+    deadline = time.monotonic() + 2.0
+    responses = []
+    while time.monotonic() < deadline:
+        try:
+            data, addr = sock.recvfrom(65535)
+            responses.append((data, addr))
+        except socket.timeout:
+            break
+        except ConnectionResetError:
+            continue
+
+    if responses:
+        print(f"  Received {len(responses)} responses:")
+        for data, addr in responses[:10]:
+            print(f"    From {addr}: {len(data)} bytes  head={data[:16].hex(' ')}")
+    else:
+        print(f"  No responses received")
+
+
+def probe_camera_module(bind_ip):
+    """Probe 192.168.100.1 (JieLi camera module) for reachability."""
+    print(f"\n{'='*70}")
+    print(f"CAMERA MODULE PROBE (192.168.100.1)")
+    print(f"{'='*70}")
+
+    camera_ip = "192.168.100.1"
+
+    # Try UDP probe on common ports
+    test_ports = [80, 554, 8080, 8554, 8800, 9090, 6220, 4040]
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(1.0)
+    if bind_ip:
+        try:
+            sock.bind((bind_ip, 0))
+        except OSError:
+            pass
+
+    for port in test_ports:
+        try:
+            sock.sendto(b"\x00\x00\x00\x00", (camera_ip, port))
+        except OSError:
+            pass
+
+    # Listen
+    print(f"  Sent probes to {camera_ip} on ports {test_ports}")
+    deadline = time.monotonic() + 2.0
+    got_response = False
+    while time.monotonic() < deadline:
+        try:
+            data, addr = sock.recvfrom(65535)
+            print(f"  RESPONSE from {addr}: {len(data)} bytes  head={data[:16].hex(' ')}")
+            got_response = True
+        except socket.timeout:
+            break
+        except ConnectionResetError:
+            # ICMP port unreachable = host exists but port closed
+            print(f"  Got ICMP unreachable — {camera_ip} IS reachable but port closed")
+            got_response = True
+            break
+
+    # Also try TCP on port 80
+    try:
+        tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tcp_sock.settimeout(2.0)
+        result = tcp_sock.connect_ex((camera_ip, 80))
+        if result == 0:
+            print(f"  TCP port 80 OPEN on {camera_ip}")
+            got_response = True
+        else:
+            print(f"  TCP port 80 closed (error={result})")
+        tcp_sock.close()
+    except Exception as e:
+        print(f"  TCP probe failed: {e}")
+
+    sock.close()
+
+    if not got_response:
+        print(f"  {camera_ip} appears UNREACHABLE from this network")
+
+
 def dump_raw_packets(packets, output_dir="packet_dumps"):
     """Dump raw packets to disk for offline analysis."""
     os.makedirs(output_dir, exist_ok=True)
@@ -351,7 +588,17 @@ def main():
     # Analyze
     analyze_headers(packets)
     find_frame_boundaries(packets)
+    analyze_fragment_fields(packets)
     check_h264(packets)
+
+    # Probe port 8801 (BL-UAVSDK control port)
+    print("\nProbing port 8801 (need fresh socket)...")
+    probe_sock = create_socket(bind_ip)
+    probe_port_8801(probe_sock, drone_ip)
+    probe_sock.close()
+
+    # Probe camera module at 192.168.100.1
+    probe_camera_module(bind_ip)
 
     # Optionally dump
     if args.dump:

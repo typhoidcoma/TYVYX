@@ -1,25 +1,31 @@
 """Push-based JPEG video protocol adapter (0x93 protocol).
 
-Used by many cheap Chinese WiFi UAV drones (including K417 / Drone-XXXXXX).
-Reverse-engineered via https://github.com/FahrulRPutra/reversing-wifi-uav
-and https://github.com/JadanPoll/DroneUAVHack.
+Used by BL608 / BL-UAVSDK WiFi UAV drones (K417 / Drone-XXXXXX).
+Reverse-engineered from YN Fly APK (libuav_lib.so) + live packet capture.
 
 Protocol summary:
   - Send START_STREAM (ef 00 04 00) to drone port 8800
-  - Drone pushes JPEG fragments continuously from its port 1234
-  - Packets: 0x93 0x01 magic, LE length at bytes 2-3, max 1080 bytes
-  - Frame boundary: byte 32 = 0x00 marks first packet of new frame
-  - Payload: byte 56 onwards = raw JPEG scan data (no SOI/DQT/DHT/SOF/SOS)
+  - Drone pushes JPEG fragments continuously from its source port 1234
+  - Packets: 0x93 0x01 magic, 56-byte header, payload at byte 56+
+  - Header fields (confirmed via live capture):
+      bytes 2-3:   LE uint16 packet_length (total packet size)
+      bytes 32-33: LE uint16 fragment_id (0-based index within frame)
+      bytes 36-37: LE uint16 fragment_total (total fragments in frame)
+      bytes 44-45: LE uint16 width (640)
+      bytes 46-47: LE uint16 height (360)
+  - Frame complete when all fragment_total fragments received
+  - Payload: raw JPEG scan data (no SOI/DQT/DHT/SOF/SOS)
   - Client must prepend full JPEG headers (including Huffman tables) + append EOI
 """
 
 import ctypes
 import queue
 import socket
+import struct
 import sys
 import threading
 import time
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from tyvyx.models.video_frame import VideoFrame
 from tyvyx.utils.wifi_uav_packets import START_STREAM
@@ -29,9 +35,15 @@ from tyvyx.utils.wifi_uav_jpeg import generate_jpeg_headers_full, EOI
 # Protocol constants
 MAGIC = b"\x93\x01"
 HEADER_SIZE = 56          # Bytes 0-55 are header, 56+ is payload
-FRAME_MARKER_OFFSET = 32  # Byte 32: 0x00 = first packet of new frame
 MAX_PACKET_SIZE = 1080
-KEEPALIVE_INTERVAL = 0.2  # Re-send START_STREAM as fallback (200ms)
+KEEPALIVE_INTERVAL = 0.1  # Re-send START_STREAM (100ms / 10 Hz — sweet spot for half-duplex WiFi)
+
+# Header field offsets (confirmed via live packet capture + BL-UAVSDK RE)
+OFF_PKT_LEN = 2           # LE uint16: total packet size
+OFF_FRAG_ID = 32          # LE uint16: fragment index (0-based)
+OFF_FRAG_TOTAL = 36       # LE uint16: total fragments in frame
+OFF_WIDTH = 44            # LE uint16: frame width (e.g. 640)
+OFF_HEIGHT = 46           # LE uint16: frame height (e.g. 360)
 
 
 class PushJpegVideoProtocolAdapter:
@@ -73,10 +85,10 @@ class PushJpegVideoProtocolAdapter:
         # Socket
         self._sock = self._create_socket()
 
-        # Frame assembly
-        self._frame_buf = bytearray()
+        # Frame assembly — fragment-based with immediate completion
+        self._fragments: Dict[int, bytes] = {}  # frag_id -> payload
+        self._frag_total = 0                     # expected fragment count
         self._frame_count = 0
-        self._frame_ready = False
 
         # Threading
         self._running = False
@@ -90,7 +102,11 @@ class PushJpegVideoProtocolAdapter:
         self.packets_rx = 0
         self.packets_rejected = 0
         self._last_frame_time = 0.0
-        self._stall_timeout = 10.0  # Stop adapter after 10s with no frames
+        self._last_rx_time = 0.0    # Last packet received (any type)
+        self._stall_timeout = 30.0  # Stop adapter after 30s with no frames
+        self._stats_time = time.time()
+        self._stats_pkts = 0
+        self._stats_frames = 0
 
         self._dbg(f"[push-jpeg] Adapter created  drone={drone_ip}:{control_port}  "
                   f"bind={bind_ip or '*'}  sock={self._sock.getsockname()}")
@@ -204,14 +220,22 @@ class PushJpegVideoProtocolAdapter:
             pass
 
     def _keepalive_loop(self) -> None:
-        """Periodically re-send START_STREAM to keep the video flowing."""
+        """Continuously pump START_STREAM to drive the video stream.
+
+        The drone outputs video data proportionally to how frequently
+        it receives START_STREAM — more pumping = faster video.
+        """
         while self._running:
             time.sleep(KEEPALIVE_INTERVAL)
             if self._running:
-                self._send_start()
+                self._send_start_fast()
 
     def _rx_loop(self) -> None:
-        """Receive packets, filter by magic, assemble JPEG frames."""
+        """Receive packets, filter by magic, assemble JPEG frames.
+
+        Uses fragment_id (bytes 32-33) and fragment_total (bytes 36-37)
+        for proper reassembly with immediate completion detection.
+        """
         sock = self._sock
         self._dbg(f"[push-jpeg] RX thread started, socket={sock.getsockname()}")
 
@@ -228,13 +252,28 @@ class PushJpegVideoProtocolAdapter:
                 break
 
             self.packets_rx += 1
+            self._stats_pkts += 1
+            self._last_rx_time = time.time()
+
+            # Periodic stats every 5 seconds
+            now = time.time()
+            if now - self._stats_time >= 5.0:
+                elapsed = now - self._stats_time
+                pps = self._stats_pkts / elapsed
+                fps = self._stats_frames / elapsed
+                nfrags = len(self._fragments)
+                print(f"[push-jpeg] STATS: {pps:.1f} pkt/s | {fps:.1f} fps | "
+                      f"frags={nfrags}/{self._frag_total} | rejected={self.packets_rejected}")
+                self._stats_pkts = 0
+                self._stats_frames = 0
+                self._stats_time = now
 
             # Log first few packets
             if self.packets_rx <= 5:
-                head = data[:32].hex(" ") if data else "(empty)"
+                head = data[:40].hex(" ") if data else "(empty)"
                 self._dbg(f"[push-jpeg] RX #{self.packets_rx}: {len(data)} bytes from {addr}  head={head}")
 
-            # Filter: must start with 0x93 0x01
+            # Filter: must start with 0x93 0x01 and be at least header-sized
             if len(data) < HEADER_SIZE or data[0:2] != MAGIC:
                 self.packets_rejected += 1
                 if self.packets_rejected <= 3:
@@ -242,30 +281,42 @@ class PushJpegVideoProtocolAdapter:
                     self._dbg(f"[push-jpeg] Rejected: {len(data)} bytes  head={head}")
                 continue
 
-            # Check frame boundary
-            is_new_frame = (data[FRAME_MARKER_OFFSET] == 0x00)
+            # Parse header fields
+            frag_id = struct.unpack_from("<H", data, OFF_FRAG_ID)[0]
+            frag_total = struct.unpack_from("<H", data, OFF_FRAG_TOTAL)[0]
 
-            if is_new_frame and self._frame_buf:
-                # Previous frame is complete — assemble and emit
-                self._emit_frame()
-                # Immediately request next frame (drone sends 1 frame per START_STREAM)
-                self._send_start_fast()
+            # New frame detected: fragment_id == 0 resets assembly
+            if frag_id == 0:
+                if self._fragments:
+                    # Previous frame incomplete — drop it
+                    self.frames_dropped += 1
+                self._fragments.clear()
+                self._frag_total = frag_total
 
-            # Append payload (bytes after header)
+            # Store fragment payload
             payload = data[HEADER_SIZE:]
             if payload:
-                self._frame_buf.extend(payload)
+                self._fragments[frag_id] = payload
+
+            # Frame complete? Emit immediately (don't wait for next frame's frag 0)
+            if self._frag_total > 0 and len(self._fragments) == self._frag_total:
+                self._emit_frame()
+                self._send_start_fast()
 
         self._dbg(f"[push-jpeg] RX thread stopped, total rx={self.packets_rx}")
 
     def _emit_frame(self) -> None:
-        """Assemble the accumulated payload into a JPEG frame and queue it."""
-        if not self._frame_buf:
+        """Assemble fragments into a JPEG frame and queue it."""
+        if not self._fragments:
             return
 
         self._last_frame_time = time.time()
         self._frame_count += 1
-        jpeg = self._jpeg_header + bytes(self._frame_buf) + EOI
+        self._stats_frames += 1
+
+        # Reassemble in fragment_id order
+        ordered = [self._fragments[i] for i in sorted(self._fragments)]
+        jpeg = self._jpeg_header + b"".join(ordered) + EOI
 
         frame = VideoFrame(frame_id=self._frame_count, data=jpeg)
         self.frames_ok += 1
@@ -285,6 +336,6 @@ class PushJpegVideoProtocolAdapter:
 
         if self.frames_ok <= 3 or self.frames_ok % 100 == 0:
             self._dbg(f"[push-jpeg] Frame {self._frame_count}: {len(jpeg)} bytes  "
-                      f"ok={self.frames_ok}")
+                      f"({len(self._fragments)}/{self._frag_total} frags)  ok={self.frames_ok}")
 
-        self._frame_buf = bytearray()
+        self._fragments.clear()

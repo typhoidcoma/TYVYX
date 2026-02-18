@@ -19,11 +19,13 @@ class VideoReceiverService:
         protocol_adapter_args,
         frame_queue=None,
         max_queue_size=2,
+        on_adapter_created=None,
     ):
         self.protocol_adapter_class = protocol_adapter_class
         self.protocol_adapter_args = protocol_adapter_args
         self.frame_queue = frame_queue or DroppingQueue(maxsize=max_queue_size)
         self.protocol = None
+        self._on_adapter_created = on_adapter_created
 
         self._running = threading.Event()
         self._receiver_thread = None
@@ -56,6 +58,12 @@ class VideoReceiverService:
                     **self.protocol_adapter_args
                 )
                 self.protocol.start()
+
+                if self._on_adapter_created:
+                    try:
+                        self._on_adapter_created(self.protocol)
+                    except Exception as e:
+                        print(f"[VideoReceiverService] on_adapter_created error: {e}")
 
                 while self._running.is_set() and self.protocol.is_running():
                     try:

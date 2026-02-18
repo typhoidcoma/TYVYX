@@ -194,22 +194,34 @@ class DroneService:
             return {"success": False, "message": f"Video error: {e}"}
 
     async def _start_video_wifi_uav(self) -> dict:
-        """Start video using pull-based WiFi UAV protocol (K417 / Drone-XXXXXX).
+        """Start video using push-based JPEG protocol (K417 / Drone-XXXXXX).
 
-        Uses REQUEST_A + REQUEST_B per frame — the drone only sends
-        the next frame after receiving both ACK packets.  This gives
-        15-25 FPS vs ~1 FPS with the push-based START_STREAM approach.
+        The drone pushes JPEG fragments after START_STREAM.
+        Does NOT respond to REQUEST_A/REQUEST_B (pull model).
         """
-        adapter_cls = WifiUavVideoProtocolAdapter
+        adapter_cls = PushJpegVideoProtocolAdapter
         adapter_args = {
             "drone_ip": self.drone.DRONE_IP,
             "control_port": self.drone.UDP_PORT,
             "video_port": self.drone.UDP_PORT,
             "bind_ip": getattr(self, '_bind_ip', ""),
-            "debug": False,
         }
 
-        return self._start_video_pipeline(adapter_cls, adapter_args, "wifi_uav")
+        # Socket sharing callback — called on initial start AND every reconnect.
+        # WiFi UAV drones require ALL UDP traffic from a single source port.
+        def on_adapter_created(adapter):
+            if not isinstance(self.drone, WifiUavDroneController):
+                return
+            sock = adapter.get_shared_socket()
+            self.drone.set_shared_socket(sock)
+            self.drone._start_heartbeat()
+            logger.info("[wifi-uav] Shared video socket with controller: %s",
+                        sock.getsockname())
+
+        return self._start_video_pipeline(
+            adapter_cls, adapter_args, "wifi_uav",
+            on_adapter_created=on_adapter_created,
+        )
 
     async def _start_video_s2x(self) -> dict:
         """Start video using S2x/E88Pro protocol."""
@@ -234,7 +246,6 @@ class DroneService:
             "control_port": self.drone.UDP_PORT,
             "video_port": 7070,
             "start_command": self.drone.CMD_START_VIDEO,
-            "debug": True,
             "bind_ip": getattr(self, '_bind_ip', ""),
         }
 
@@ -261,13 +272,15 @@ class DroneService:
         return self._start_video_pipeline(adapter_cls, adapter_args, "sniffer")
 
     def _start_video_pipeline(self, adapter_cls, adapter_args: dict,
-                              protocol_name: str) -> dict:
+                              protocol_name: str,
+                              on_adapter_created=None) -> dict:
         """Common video pipeline setup for all protocols."""
         self._raw_frame_queue = DroppingQueue(maxsize=2)
         self._video_receiver = VideoReceiverService(
             protocol_adapter_class=adapter_cls,
             protocol_adapter_args=adapter_args,
             frame_queue=self._raw_frame_queue,
+            on_adapter_created=on_adapter_created,
         )
         self._video_receiver.start()
 
@@ -361,6 +374,10 @@ class DroneService:
             return
 
         try:
+            # Stop controller heartbeat BEFORE closing the shared socket
+            if isinstance(self.drone, WifiUavDroneController):
+                self.drone._stop_heartbeat()
+
             # Signal all WS/MJPEG clients to close gracefully
             await self.frame_hub.shutdown()
 

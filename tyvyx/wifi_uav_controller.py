@@ -1,11 +1,12 @@
 """WiFi UAV Drone Controller for K417 and similar drones.
 
-Uses the wifi_uav protocol family:
-  - Single UDP socket shared between control and video (port 8800)
+Uses the wifi_uav protocol family (BL-UAVSDK / BL608 chipset):
+  - Port 8800: video streaming (MJPEG)
+  - Port 8801: control commands (RC, camera switch)
   - ~120-byte RC control packets with rolling counters
-  - No separate handshake/heartbeat needed
+  - Socket shared with video adapter (single source port required)
 
-The socket is created by WifiUavVideoProtocolAdapter and shared here.
+The socket is created by PushJpegVideoProtocolAdapter and shared here.
 """
 
 import socket
@@ -195,17 +196,22 @@ class WifiUavFlightController:
 class WifiUavDroneController:
     """Controller for WiFi UAV drones (K417, etc.).
 
-    Unlike E88Pro, wifi_uav uses a single duplex UDP socket for both
-    control and video on port 8800.  The socket is created by the video
-    protocol adapter and shared here for sending RC commands.
+    The BL-UAVSDK uses two ports:
+      - Port 8800: video stream (START_STREAM + MJPEG fragments)
+      - Port 8801: control commands (RC, camera switch, heartbeat)
+
+    The video adapter creates the UDP socket and shares it here.
+    RC commands target port 8801 to avoid contention with video on 8800.
     """
 
     DRONE_IP = "192.168.169.1"
-    UDP_PORT = 8800
+    UDP_PORT = 8800          # video stream port (used by video adapter)
+    CONTROL_PORT = 8801      # control commands port (RC, heartbeat, camera)
 
     def __init__(self, drone_ip: str = "192.168.169.1", bind_ip: str = ""):
         self.DRONE_IP = drone_ip
         self.UDP_PORT = 8800
+        self.CONTROL_PORT = 8801
         self.bind_ip = bind_ip
 
         self.udp_socket: Optional[socket.socket] = None
@@ -226,8 +232,9 @@ class WifiUavDroneController:
 
     def connect(self) -> bool:
         """Mark as connected.  WiFi UAV doesn't need a handshake."""
-        print(f"[wifi-uav] Connecting to {self.DRONE_IP}:{self.UDP_PORT} "
-              f"(bind={self.bind_ip or 'auto'})...")
+        print(f"[wifi-uav] Connecting to {self.DRONE_IP} "
+              f"(video={self.UDP_PORT}, ctrl={self.CONTROL_PORT}, "
+              f"bind={self.bind_ip or 'auto'})...")
 
         # Create a socket for control commands if we don't have a shared one yet
         if not self.udp_socket:
@@ -251,10 +258,11 @@ class WifiUavDroneController:
         self.is_connected = True
         self.is_running = True
 
-        # Start heartbeat — keeps drone alive with neutral RC packets
-        self._start_heartbeat()
+        # Heartbeat is started by drone_service AFTER video starts and the
+        # video adapter's socket is shared with this controller.  The drone
+        # requires ALL traffic from a single UDP source port.
 
-        print("[wifi-uav] Connected (heartbeat started)")
+        print("[wifi-uav] Connected (heartbeat deferred until video starts)")
         return True
 
     def set_shared_socket(self, sock: socket.socket) -> None:
@@ -319,11 +327,11 @@ class WifiUavDroneController:
         self._send_rc_raw(controls, checksum)
 
     def send_command(self, command: bytes, verbose: bool = False) -> bool:
-        """Send raw bytes to the drone."""
+        """Send raw bytes to the drone control port (8801)."""
         if not self.udp_socket:
             return False
         try:
-            self.udp_socket.sendto(command, (self.DRONE_IP, self.UDP_PORT))
+            self.udp_socket.sendto(command, (self.DRONE_IP, self.CONTROL_PORT))
             if verbose:
                 print(f"[wifi-uav] Sent: {command.hex()}")
             return True
@@ -355,7 +363,7 @@ class WifiUavDroneController:
         pkt += c3 + RC_COUNTER3_SUFFIX
 
         try:
-            self.udp_socket.sendto(bytes(pkt), (self.DRONE_IP, self.UDP_PORT))
+            self.udp_socket.sendto(bytes(pkt), (self.DRONE_IP, self.CONTROL_PORT))
         except OSError:
             pass
 
@@ -370,7 +378,7 @@ class WifiUavDroneController:
         else:
             return False
         try:
-            self.udp_socket.sendto(cmd, (self.DRONE_IP, self.UDP_PORT))
+            self.udp_socket.sendto(cmd, (self.DRONE_IP, self.CONTROL_PORT))
             print(f"[wifi-uav] Camera switch to {camera_num}: {cmd.hex(' ')}")
             return True
         except OSError as e:

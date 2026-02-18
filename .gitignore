@@ -81,3 +81,4 @@ NUL
 # Git
 .git
 packet_dumps/
+tools/

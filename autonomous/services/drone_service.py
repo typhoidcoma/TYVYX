@@ -95,9 +95,10 @@ class DroneService:
     async def connect(self, drone_ip: str,
                       bind_ip: str = "",
                       protocol: str = "") -> bool:
-        if self._connected:
-            logger.warning("Already connected to drone")
-            return True
+        # Auto-disconnect stale connection before reconnecting
+        if self._connected or self.drone:
+            logger.info("Cleaning up previous connection before reconnecting...")
+            await self.disconnect()
 
         try:
             # Auto-detect protocol if not explicitly provided
@@ -130,7 +131,7 @@ class DroneService:
             return False
 
     async def disconnect(self):
-        if not self._connected or not self.drone:
+        if not self._connected and not self.drone:
             return
 
         try:
@@ -138,16 +139,20 @@ class DroneService:
             if self._video_streaming:
                 await self.stop_video()
 
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, self.drone.disconnect)
-
+            if self.drone:
+                try:
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, self.drone.disconnect)
+                except Exception as e:
+                    logger.error(f"Error in drone.disconnect(): {e}")
+        except Exception as e:
+            logger.error(f"Error disconnecting: {e}")
+        finally:
+            # Always reset state, even if cleanup failed
             self._connected = False
             self.drone = None
             self._drone_protocol = None
             logger.info("Disconnected from drone")
-
-        except Exception as e:
-            logger.error(f"Error disconnecting: {e}")
 
     async def start_video(self, protocol: str = "") -> dict:
         """
@@ -368,19 +373,20 @@ class DroneService:
                 self._pump_stop.set()
             if self._pump_thread:
                 self._pump_thread.join(timeout=2.0)
-                self._pump_thread = None
 
             # Stop video receiver
             if self._video_receiver:
                 self._video_receiver.stop()
-                self._video_receiver = None
-
+        except Exception as e:
+            logger.error(f"Error stopping video: {e}")
+        finally:
+            # Always reset state, even if cleanup failed
+            self._pump_thread = None
+            self._pump_stop = None
+            self._video_receiver = None
             self._video_streaming = False
             self._video_protocol = None
             logger.info("Video stream stopped")
-
-        except Exception as e:
-            logger.error(f"Error stopping video: {e}")
 
     async def send_command(self, command: bytes) -> bool:
         if not self._connected or not self.drone:
@@ -448,10 +454,75 @@ class DroneService:
     def is_video_streaming(self) -> bool:
         return self._video_streaming
 
+    # ── Flight control ──
+
+    def _get_fc(self):
+        """Get the flight controller, or None."""
+        if not self._connected or not self.drone:
+            return None
+        return getattr(self.drone, 'flight_controller', None)
+
+    def is_flight_armed(self) -> bool:
+        fc = self._get_fc()
+        return fc is not None and getattr(fc, 'is_active', False)
+
+    async def arm_flight(self) -> bool:
+        fc = self._get_fc()
+        if fc and hasattr(fc, 'start'):
+            fc.start()
+            logger.info("Flight controller armed")
+            return True
+        return False
+
+    async def disarm_flight(self) -> bool:
+        fc = self._get_fc()
+        if fc and hasattr(fc, 'stop'):
+            fc.stop()
+            logger.info("Flight controller disarmed")
+            return True
+        return False
+
+    async def flight_takeoff(self) -> bool:
+        fc = self._get_fc()
+        if fc and getattr(fc, 'is_active', False):
+            fc.takeoff()
+            return True
+        return False
+
+    async def flight_land(self) -> bool:
+        fc = self._get_fc()
+        if fc and getattr(fc, 'is_active', False):
+            fc.land()
+            return True
+        return False
+
+    async def flight_calibrate(self) -> bool:
+        fc = self._get_fc()
+        if fc and getattr(fc, 'is_active', False):
+            fc.calibrate_gyro()
+            return True
+        return False
+
+    async def flight_headless(self) -> bool:
+        fc = self._get_fc()
+        if fc and getattr(fc, 'is_active', False):
+            fc.toggle_headless()
+            return True
+        return False
+
+    async def flight_set_axes(self, throttle=None, yaw=None,
+                              pitch=None, roll=None) -> bool:
+        fc = self._get_fc()
+        if fc and getattr(fc, 'is_active', False) and hasattr(fc, 'set_axes'):
+            fc.set_axes(throttle=throttle, yaw=yaw, pitch=pitch, roll=roll)
+            return True
+        return False
+
     def get_status(self) -> dict:
         status = {
             "connected": self._connected,
             "video_streaming": self._video_streaming,
+            "flight_armed": self.is_flight_armed(),
             "timestamp": time.time(),
             "bind_ip": getattr(self, '_bind_ip', None),
             "drone_protocol": self._drone_protocol,

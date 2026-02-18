@@ -31,7 +31,7 @@ MAGIC = b"\x93\x01"
 HEADER_SIZE = 56          # Bytes 0-55 are header, 56+ is payload
 FRAME_MARKER_OFFSET = 32  # Byte 32: 0x00 = first packet of new frame
 MAX_PACKET_SIZE = 1080
-KEEPALIVE_INTERVAL = 1.0  # Re-send START_STREAM every N seconds
+KEEPALIVE_INTERVAL = 0.2  # Re-send START_STREAM as fallback (200ms)
 
 
 class PushJpegVideoProtocolAdapter:
@@ -83,14 +83,14 @@ class PushJpegVideoProtocolAdapter:
         self._rx_thread: Optional[threading.Thread] = None
         self._keepalive_thread: Optional[threading.Thread] = None
         self._frame_q: "queue.Queue[VideoFrame]" = queue.Queue(maxsize=4)
-        self._pkt_lock = threading.Lock()
-        self._pkt_buffer: List[bytes] = []
 
         # Stats
         self.frames_ok = 0
         self.frames_dropped = 0
         self.packets_rx = 0
         self.packets_rejected = 0
+        self._last_frame_time = 0.0
+        self._stall_timeout = 10.0  # Stop adapter after 10s with no frames
 
         self._dbg(f"[push-jpeg] Adapter created  drone={drone_ip}:{control_port}  "
                   f"bind={bind_ip or '*'}  sock={self._sock.getsockname()}")
@@ -138,7 +138,14 @@ class PushJpegVideoProtocolAdapter:
                   f"rx={self.packets_rx}  rejected={self.packets_rejected}")
 
     def is_running(self) -> bool:
-        return self._running and self._rx_thread is not None and self._rx_thread.is_alive()
+        if not self._running or self._rx_thread is None or not self._rx_thread.is_alive():
+            return False
+        # Stop if no frames received for stall_timeout seconds
+        if self._last_frame_time > 0 and (time.time() - self._last_frame_time) > self._stall_timeout:
+            self._dbg(f"[push-jpeg] Stall detected ({self._stall_timeout}s), stopping for reconnect")
+            self._running = False
+            return False
+        return True
 
     def get_frame(self, timeout: float = 1.0) -> Optional[VideoFrame]:
         try:
@@ -147,10 +154,7 @@ class PushJpegVideoProtocolAdapter:
             return None
 
     def get_packets(self) -> List[bytes]:
-        with self._pkt_lock:
-            pkts = self._pkt_buffer
-            self._pkt_buffer = []
-            return pkts
+        return []
 
     # ── shared socket (for RC adapter to multiplex on the same socket) ──
 
@@ -192,6 +196,13 @@ class PushJpegVideoProtocolAdapter:
         except OSError as e:
             self._dbg(f"[push-jpeg] Send error: {e}")
 
+    def _send_start_fast(self) -> None:
+        """Send START_STREAM without logging (called per-frame in RX hot path)."""
+        try:
+            self._sock.sendto(START_STREAM, (self.drone_ip, self.control_port))
+        except OSError:
+            pass
+
     def _keepalive_loop(self) -> None:
         """Periodically re-send START_STREAM to keep the video flowing."""
         while self._running:
@@ -218,10 +229,6 @@ class PushJpegVideoProtocolAdapter:
 
             self.packets_rx += 1
 
-            # Diagnostic buffer
-            with self._pkt_lock:
-                self._pkt_buffer.append(data)
-
             # Log first few packets
             if self.packets_rx <= 5:
                 head = data[:32].hex(" ") if data else "(empty)"
@@ -241,6 +248,8 @@ class PushJpegVideoProtocolAdapter:
             if is_new_frame and self._frame_buf:
                 # Previous frame is complete — assemble and emit
                 self._emit_frame()
+                # Immediately request next frame (drone sends 1 frame per START_STREAM)
+                self._send_start_fast()
 
             # Append payload (bytes after header)
             payload = data[HEADER_SIZE:]
@@ -254,6 +263,7 @@ class PushJpegVideoProtocolAdapter:
         if not self._frame_buf:
             return
 
+        self._last_frame_time = time.time()
         self._frame_count += 1
         jpeg = self._jpeg_header + bytes(self._frame_buf) + EOI
 

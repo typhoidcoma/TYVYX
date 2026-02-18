@@ -6,6 +6,7 @@ import { PositionIndicator } from './components/PositionIndicator'
 import { TrajectoryControls } from './components/TrajectoryControls'
 import { WifiScanner } from './components/WifiScanner'
 import { DroneVideo } from './components/DroneVideo'
+import { FlightControls } from './components/FlightControls'
 import './App.css'
 
 function App() {
@@ -13,6 +14,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [testVideo, setTestVideo] = useState(false)
+  const [flightArmed, setFlightArmed] = useState(false)
   const { updatePosition } = usePositionStore()
 
   // Poll drone status every 2 s
@@ -202,6 +204,13 @@ function App() {
                 </button>
               </div>
             </section>
+
+            {/* Flight */}
+            <FlightControls
+              connected={!!status?.connected}
+              armed={flightArmed}
+              onArmedChange={setFlightArmed}
+            />
 
             {/* Status message */}
             {message && (

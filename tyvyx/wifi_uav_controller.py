@@ -17,6 +17,7 @@ from typing import List, Optional
 from tyvyx.utils.wifi_uav_packets import (
     RC_HEADER, RC_COUNTER1_SUFFIX, RC_CONTROL_SUFFIX,
     RC_CHECKSUM_SUFFIX, RC_COUNTER2_SUFFIX, RC_COUNTER3_SUFFIX,
+    CAMERA_FRONT, CAMERA_BOTTOM,
 )
 
 
@@ -43,6 +44,9 @@ class WifiUavFlightController:
         self._land_flag = False
         self._calibrate_flag = False
         self._headless_mode = False
+
+        # External axis control (suppresses auto-decel for 200ms after set_axes)
+        self._last_axes_set = 0.0
 
         self.control_thread = None
         self.is_active = False
@@ -80,6 +84,23 @@ class WifiUavFlightController:
 
     def toggle_headless(self):
         self._headless_mode = not self._headless_mode
+
+    def set_axes(self, throttle=None, yaw=None, pitch=None, roll=None):
+        """Set axis values directly (0-255, 127=center).
+
+        Suppresses auto-decel for 200ms so the values aren't immediately
+        erased.  Call periodically (10-20 Hz) while keys are held.
+        """
+        self._last_axes_set = time.time()
+        _clamp = lambda v: max(self.MIN_VAL, min(self.MAX_VAL, int(v)))
+        if throttle is not None:
+            self.throttle = _clamp(throttle)
+        if yaw is not None:
+            self.yaw = _clamp(yaw)
+        if pitch is not None:
+            self.pitch = _clamp(pitch)
+        if roll is not None:
+            self.roll = _clamp(roll)
 
     def increase_throttle(self):
         self.throttle = min(self.throttle + self.STEP, self.MAX_VAL)
@@ -150,8 +171,8 @@ class WifiUavFlightController:
         self._land_flag = False
         self._calibrate_flag = False
 
-        # Auto-decel
-        if self.DECEL_STEP > 0:
+        # Auto-decel (suppressed for 200ms after set_axes)
+        if self.DECEL_STEP > 0 and (time.time() - self._last_axes_set) > 0.2:
             for attr in ('roll', 'pitch', 'throttle', 'yaw'):
                 val = getattr(self, attr)
                 if val > self.NEUTRAL:
@@ -292,8 +313,22 @@ class WifiUavDroneController:
             pass
 
     def switch_camera(self, camera_num: int) -> bool:
-        """WiFi UAV doesn't support camera switching."""
-        return False
+        """Switch between front (1) and bottom (2) cameras."""
+        if not self.udp_socket:
+            return False
+        if camera_num == 1:
+            cmd = CAMERA_FRONT
+        elif camera_num == 2:
+            cmd = CAMERA_BOTTOM
+        else:
+            return False
+        try:
+            self.udp_socket.sendto(cmd, (self.DRONE_IP, self.UDP_PORT))
+            print(f"[wifi-uav] Camera switch to {camera_num}: {cmd.hex(' ')}")
+            return True
+        except OSError as e:
+            print(f"[wifi-uav] Camera switch error: {e}")
+            return False
 
     def switch_screen_mode(self, mode: int) -> bool:
         """WiFi UAV doesn't support screen mode switching."""
@@ -303,5 +338,5 @@ class WifiUavDroneController:
     CMD_HEARTBEAT = b""
     CMD_INITIALIZE = b""
     CMD_START_VIDEO = b"\xef\x00\x04\x00"
-    CMD_CAMERA_1 = b""
-    CMD_CAMERA_2 = b""
+    CMD_CAMERA_1 = CAMERA_FRONT
+    CMD_CAMERA_2 = CAMERA_BOTTOM

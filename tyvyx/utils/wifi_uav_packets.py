@@ -6,6 +6,10 @@ Ported from turbodrone (utils/wifi_uav_packets.py).
 # Sent once to kick off the video stream.
 START_STREAM = b"\xef\x00\x04\x00"
 
+# Camera switching (ef 01 wrapper around E88Pro-style 06 XX command)
+CAMERA_FRONT = b"\xef\x01\x02\x00\x06\x01"   # Camera 1 (front)
+CAMERA_BOTTOM = b"\xef\x01\x02\x00\x06\x02"   # Camera 2 (bottom)
+
 # Both REQUEST_A and REQUEST_B must be sent for each frame.
 # The drone will not send the next frame without receiving both.
 # Frame-ID bytes are patched at the offsets listed in the video protocol.

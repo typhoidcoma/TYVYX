@@ -32,6 +32,7 @@ class CommandRequest(BaseModel):
 class StatusResponse(BaseModel):
     connected: bool
     video_streaming: bool
+    flight_armed: Optional[bool] = None
     is_running: Optional[bool] = None
     device_type: Optional[int] = None
     timestamp: float
@@ -174,6 +175,39 @@ async def send_command(request: CommandRequest):
             mode = params.get("mode", 1)
             success = await drone_service.switch_screen_mode(mode)
             return {"success": success, "message": f"Switched to screen mode {mode}" if success else "Failed to switch screen mode"}
+
+        elif action == "arm":
+            success = await drone_service.arm_flight()
+            return {"success": success, "message": "Armed" if success else "Failed to arm"}
+
+        elif action == "disarm":
+            success = await drone_service.disarm_flight()
+            return {"success": success, "message": "Disarmed" if success else "Failed to disarm"}
+
+        elif action == "takeoff":
+            success = await drone_service.flight_takeoff()
+            return {"success": success, "message": "Takeoff" if success else "Not armed"}
+
+        elif action == "land":
+            success = await drone_service.flight_land()
+            return {"success": success, "message": "Landing" if success else "Not armed"}
+
+        elif action == "calibrate":
+            success = await drone_service.flight_calibrate()
+            return {"success": success, "message": "Calibrating" if success else "Not armed"}
+
+        elif action == "headless":
+            success = await drone_service.flight_headless()
+            return {"success": success, "message": "Headless toggled" if success else "Not armed"}
+
+        elif action == "axes":
+            success = await drone_service.flight_set_axes(
+                throttle=params.get("throttle"),
+                yaw=params.get("yaw"),
+                pitch=params.get("pitch"),
+                roll=params.get("roll"),
+            )
+            return {"success": success, "message": "Axes set" if success else "Not armed"}
 
         elif action == "raw":
             # Send raw bytes (hex string like "010203")

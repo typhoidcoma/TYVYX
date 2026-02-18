@@ -17,6 +17,7 @@ const api = axios.create({
 export interface DroneStatus {
   connected: boolean;
   video_streaming: boolean;
+  flight_armed?: boolean;
   is_running?: boolean;
   device_type?: number;
   timestamp: number;
@@ -73,6 +74,17 @@ export const droneApi = {
 
   switchScreen: async (mode: number) => {
     return droneApi.sendCommand({ action: 'switch_screen', params: { mode } });
+  },
+
+  // Flight control
+  arm: async () => droneApi.sendCommand({ action: 'arm' }),
+  disarm: async () => droneApi.sendCommand({ action: 'disarm' }),
+  takeoff: async () => droneApi.sendCommand({ action: 'takeoff' }),
+  land: async () => droneApi.sendCommand({ action: 'land' }),
+  calibrate: async () => droneApi.sendCommand({ action: 'calibrate' }),
+  headless: async () => droneApi.sendCommand({ action: 'headless' }),
+  setAxes: async (axes: { throttle?: number; yaw?: number; pitch?: number; roll?: number }) => {
+    return droneApi.sendCommand({ action: 'axes', params: axes });
   },
 };
 

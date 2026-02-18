@@ -7,8 +7,9 @@ Protocol summary:
   - Send START_STREAM (ef 00 04 00) to drone port 8800
   - Drone pushes JPEG fragments continuously from its source port 1234
   - Packets: 0x93 0x01 magic, 56-byte header, payload at byte 56+
-  - Header fields (confirmed via live capture):
+  - Header fields (confirmed via live capture + DWARF debug info):
       bytes 2-3:   LE uint16 packet_length (total packet size)
+      bytes 8-15:  LE uint64 seq_fly (frame sequence number)
       bytes 32-33: LE uint16 fragment_id (0-based index within frame)
       bytes 36-37: LE uint16 fragment_total (total fragments in frame)
       bytes 44-45: LE uint16 width (640)
@@ -16,6 +17,9 @@ Protocol summary:
   - Frame complete when all fragment_total fragments received
   - Payload: raw JPEG scan data (no SOI/DQT/DHT/SOF/SOS)
   - Client must prepend full JPEG headers (including Huffman tables) + append EOI
+  - Client sends bitmap ACK (168 bytes) to port 8801 after each frame:
+      control_msg_ack_header (88B) + control_msg_ack_payload_item (80B)
+      Without ACKs the drone throttles to ~2 FPS (sliding window stall)
 """
 
 import ctypes
@@ -44,6 +48,23 @@ OFF_FRAG_ID = 32          # LE uint16: fragment index (0-based)
 OFF_FRAG_TOTAL = 36       # LE uint16: total fragments in frame
 OFF_WIDTH = 44            # LE uint16: frame width (e.g. 640)
 OFF_HEIGHT = 46           # LE uint16: frame height (e.g. 360)
+OFF_SEQ_FLY = 8           # LE uint64: frame sequence number (for ACK)
+
+# ACK protocol (control_msg_ack_header + control_msg_ack_payload_item)
+# Reverse-engineered from libuav_lib.so DWARF debug info (build_send_ack_bl618).
+# Without ACKs the drone throttles to ~2 FPS; with bitmap ACKs it runs full speed.
+ACK_MAGIC = 0xEF
+ACK_TYPE = 0x02
+ACK_HDR_SIZE = 88         # control_msg_ack_header
+ACK_ITEM_SIZE = 80        # control_msg_ack_payload_item (BL618: seq + received + len + bitmap[64])
+ACK_VER = 0x01000202      # Protocol version (extracted from REQUEST_A packet)
+
+# Neutral 20-byte RC packet embedded in ACK flyctl_msg_data[64]
+# 0x66 header, length=20, sticks=center(0x80), no commands, flags_b=0x02(no headless)
+_NEUTRAL_RC = (
+    b"\x66\x14\x80\x80\x80\x80\x00\x02"
+    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x99"
+)
 
 
 class PushJpegVideoProtocolAdapter:
@@ -108,6 +129,14 @@ class PushJpegVideoProtocolAdapter:
         self._stats_pkts = 0
         self._stats_frames = 0
 
+        # ACK protocol state (bitmap fragment acknowledgment for flow control)
+        self._seq_fly = 0              # Current frame's sequence number from drone
+        self._ack_seq = 0              # Rolling ACK packet counter (flyctl_msg_seq)
+        self._ack_port = 8801          # Drone control port for ACKs
+        self._ack_bitmap = bytearray(64)   # 512-bit fragment receipt bitmap
+        self._frame_payload_len = 0    # Accumulated payload bytes for current frame
+        self._acks_sent = 0            # Total ACK packets sent
+
         self._dbg(f"[push-jpeg] Adapter created  drone={drone_ip}:{control_port}  "
                   f"bind={bind_ip or '*'}  sock={self._sock.getsockname()}")
 
@@ -151,7 +180,7 @@ class PushJpegVideoProtocolAdapter:
             pass
 
         self._dbg(f"[push-jpeg] Stopped  ok={self.frames_ok}  dropped={self.frames_dropped}  "
-                  f"rx={self.packets_rx}  rejected={self.packets_rejected}")
+                  f"rx={self.packets_rx}  acks={self._acks_sent}  rejected={self.packets_rejected}")
 
     def is_running(self) -> bool:
         if not self._running or self._rx_thread is None or not self._rx_thread.is_alive():
@@ -263,7 +292,8 @@ class PushJpegVideoProtocolAdapter:
                 fps = self._stats_frames / elapsed
                 nfrags = len(self._fragments)
                 print(f"[push-jpeg] STATS: {pps:.1f} pkt/s | {fps:.1f} fps | "
-                      f"frags={nfrags}/{self._frag_total} | rejected={self.packets_rejected}")
+                      f"frags={nfrags}/{self._frag_total} | acks={self._acks_sent} | "
+                      f"rejected={self.packets_rejected}")
                 self._stats_pkts = 0
                 self._stats_frames = 0
                 self._stats_time = now
@@ -284,6 +314,7 @@ class PushJpegVideoProtocolAdapter:
             # Parse header fields
             frag_id = struct.unpack_from("<H", data, OFF_FRAG_ID)[0]
             frag_total = struct.unpack_from("<H", data, OFF_FRAG_TOTAL)[0]
+            seq_fly = struct.unpack_from("<Q", data, OFF_SEQ_FLY)[0]
 
             # New frame detected: fragment_id == 0 resets assembly
             if frag_id == 0:
@@ -292,14 +323,20 @@ class PushJpegVideoProtocolAdapter:
                     self.frames_dropped += 1
                 self._fragments.clear()
                 self._frag_total = frag_total
+                self._seq_fly = seq_fly
+                self._frame_payload_len = 0
+                self._bitmap_clear()
 
-            # Store fragment payload
+            # Store fragment payload and update ACK bitmap
             payload = data[HEADER_SIZE:]
             if payload:
                 self._fragments[frag_id] = payload
+                self._bitmap_set(frag_id)
+                self._frame_payload_len += len(payload)
 
-            # Frame complete? Emit immediately (don't wait for next frame's frag 0)
+            # Frame complete? ACK + emit immediately
             if self._frag_total > 0 and len(self._fragments) == self._frag_total:
+                self._send_ack()
                 self._emit_frame()
                 self._send_start_fast()
 
@@ -339,3 +376,81 @@ class PushJpegVideoProtocolAdapter:
                       f"({len(self._fragments)}/{self._frag_total} frags)  ok={self.frames_ok}")
 
         self._fragments.clear()
+
+    # ── ACK protocol (bitmap fragment acknowledgment) ──
+    #
+    # The drone uses a sliding window: it won't push new frames until we ACK
+    # the ones we received.  Each ACK carries a 512-bit bitmap (one bit per
+    # fragment_id) so the drone knows exactly which fragments arrived.
+    #
+    # Packet layout (168 bytes total):
+    #   control_msg_ack_header       [0..87]    88 bytes
+    #   control_msg_ack_payload_item [88..167]  80 bytes (BL618)
+
+    def _bitmap_set(self, frag_id):
+        # type: (int) -> None
+        """Set the bit for a received fragment in the ACK bitmap."""
+        byte_idx = frag_id >> 3
+        bit_idx = frag_id & 7
+        if byte_idx < 64:
+            self._ack_bitmap[byte_idx] |= (1 << bit_idx)
+
+    def _bitmap_clear(self):
+        # type: () -> None
+        """Reset the ACK bitmap for a new frame."""
+        for i in range(64):
+            self._ack_bitmap[i] = 0
+
+    def _build_ack_packet(self, seq_fly, frag_received, payload_len):
+        # type: (int, int, int) -> bytes
+        """Build control_msg_ack_header (88B) + control_msg_ack_payload_item (80B).
+
+        Struct layouts from DWARF debug info in libuav_lib.so.
+        """
+        total_len = ACK_HDR_SIZE + ACK_ITEM_SIZE  # 168
+        buf = bytearray(total_len)
+
+        # ── Header (88 bytes) ──
+        buf[0] = ACK_MAGIC                                     # magic_num
+        buf[1] = ACK_TYPE                                      # type
+        struct.pack_into("<H", buf, 2, total_len)              # length
+        struct.pack_into("<I", buf, 4, ACK_VER)                # ver
+        buf[8] = 1                                             # num (1 ACK item)
+        # _pad0 [9..11] = zeros
+        self._ack_seq += 1
+        struct.pack_into("<I", buf, 12, self._ack_seq & 0xFFFFFFFF)  # flyctl_msg_seq
+        struct.pack_into("<H", buf, 16, len(_NEUTRAL_RC))      # flyctl_msg_len
+        buf[18:18 + len(_NEUTRAL_RC)] = _NEUTRAL_RC            # flyctl_msg_data
+        buf[82] = 0x32                                         # quality1 = 50
+        buf[83] = 0x4B                                         # quality2 = 75
+        buf[84] = 0x14                                         # q_threshold1 = 20
+        buf[85] = 0x2D                                         # q_threshold2 = 45
+        # active_cam_idx [86] and _pad1 [87] = zeros
+
+        # ── ACK item (80 bytes at offset 88) ──
+        struct.pack_into("<Q", buf, 88, seq_fly)               # seq
+        struct.pack_into("<I", buf, 96, frag_received)         # received
+        struct.pack_into("<I", buf, 100, payload_len)          # len
+        buf[104:168] = self._ack_bitmap[:64]                   # bitmap[64]
+
+        return bytes(buf)
+
+    def _send_ack(self):
+        # type: () -> None
+        """Send bitmap ACK for the current frame to the drone control port."""
+        if not self._seq_fly:
+            return
+        pkt = self._build_ack_packet(
+            self._seq_fly,
+            len(self._fragments),
+            self._frame_payload_len,
+        )
+        try:
+            self._sock.sendto(pkt, (self.drone_ip, self._ack_port))
+            self._acks_sent += 1
+            if self._acks_sent <= 3:
+                self._dbg(f"[push-jpeg] ACK #{self._acks_sent}: seq={self._seq_fly} "
+                          f"frags={len(self._fragments)}/{self._frag_total} "
+                          f"-> {self.drone_ip}:{self._ack_port}")
+        except OSError:
+            pass

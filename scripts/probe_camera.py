@@ -29,9 +29,9 @@ import time
 from typing import List, Optional, Tuple
 
 # Network constants
-DRONE_GATEWAY = "192.168.169.1"
-CAMERA_IP = "192.168.100.1"
-CAMERA_SUBNET = "192.168.100.0"
+DRONE_GATEWAY = " 192.168.1.1"
+CAMERA_IP = "192.168.1.100"
+CAMERA_SUBNET = "192.168.1.100"
 CAMERA_MASK = "255.255.255.0"
 
 # Common JieLi camera ports (from reverse engineering various drone apps)
@@ -75,7 +75,7 @@ def find_drone_interface():
     lines = result.stdout.split("\n")
     for line in lines:
         # Look for IPv4 address lines
-        if "IPv4" in line and "192.168.169" in line:
+        if "IPv4" in line and "192.168.1.100" in line:
             # Extract IP
             parts = line.split(":")
             if len(parts) >= 2:
@@ -86,7 +86,7 @@ def find_drone_interface():
         # Also check for any 192.168.169.x in the line
         match = re.search(r"192\.168\.169\.(\d+)", line)
         if match:
-            return "192.168.169." + match.group(1)
+            return "192.168.1.100." + match.group(1)
 
     return None
 

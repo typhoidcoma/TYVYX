@@ -41,3 +41,20 @@ class FrameHub:
                     q.put_nowait(frame)
                 except Exception:
                     await self.unregister(q)
+
+    async def shutdown(self) -> None:
+        """Send None to all clients to signal stream end, then clear."""
+        async with self._lock:
+            clients = list(self._clients)
+        for q in clients:
+            try:
+                q.put_nowait(None)
+            except asyncio.QueueFull:
+                try:
+                    q.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+                try:
+                    q.put_nowait(None)
+                except Exception:
+                    pass

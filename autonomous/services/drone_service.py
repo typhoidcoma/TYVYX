@@ -194,13 +194,13 @@ class DroneService:
             return {"success": False, "message": f"Video error: {e}"}
 
     async def _start_video_wifi_uav(self) -> dict:
-        """Start video using push-based JPEG protocol (K417 / Drone-XXXXXX).
+        """Start video using pull-based WiFi UAV protocol (K417 / Drone-XXXXXX).
 
-        The drone sends JPEG fragments continuously after receiving
-        START_STREAM — no per-frame request needed.  Packets use the
-        0x93 0x01 header format with payload at byte 56.
+        Uses REQUEST_A + REQUEST_B per frame — the drone only sends
+        the next frame after receiving both ACK packets.  This gives
+        15-25 FPS vs ~1 FPS with the push-based START_STREAM approach.
         """
-        adapter_cls = PushJpegVideoProtocolAdapter
+        adapter_cls = WifiUavVideoProtocolAdapter
         adapter_args = {
             "drone_ip": self.drone.DRONE_IP,
             "control_port": self.drone.UDP_PORT,
@@ -345,18 +345,11 @@ class DroneService:
                         if img is not None:
                             _executor.submit(position_service.process_frame, img)
             except queue.Empty:
-                # Stream stall detection: notify clients periodically while stalled
+                # Log stall but do NOT kill clients — adapter will recover
                 if first_frame_seen and (time.monotonic() - last_frame_time) > STALL_TIMEOUT:
                     if not stall_notified:
                         logger.warning("[pump] Stream stall detected (no frames for %.1fs)", STALL_TIMEOUT)
                         stall_notified = True
-                    # Re-publish None every cycle so new clients get the signal too
-                    try:
-                        asyncio.run_coroutine_threadsafe(
-                            frame_hub.publish(None), loop
-                        )
-                    except Exception:
-                        pass
                 continue
             except Exception as e:
                 logger.error(f"Frame pump error: {e}")
@@ -368,6 +361,9 @@ class DroneService:
             return
 
         try:
+            # Signal all WS/MJPEG clients to close gracefully
+            await self.frame_hub.shutdown()
+
             # Stop frame pump
             if self._pump_stop:
                 self._pump_stop.set()
@@ -498,8 +494,16 @@ class DroneService:
 
     async def flight_calibrate(self) -> bool:
         fc = self._get_fc()
-        if fc and getattr(fc, 'is_active', False):
-            fc.calibrate_gyro()
+        if fc:
+            if getattr(fc, 'is_active', False):
+                # FC running — set the flag, it'll be sent next loop iteration
+                fc.calibrate_gyro()
+            elif self.drone and hasattr(self.drone, 'send_one_shot_rc'):
+                # FC not armed — send calibrate as one-shot RC packets
+                # Send a few times since single UDP packets can get lost
+                for _ in range(3):
+                    self.drone.send_one_shot_rc(command_flag=0x04)
+                    await asyncio.sleep(0.05)
             return True
         return False
 

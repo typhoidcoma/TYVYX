@@ -39,9 +39,15 @@ async def video_feed():
         logger.info("[mjpeg] Client connected")
         try:
             while True:
-                frame_bytes = await q.get()
+                try:
+                    frame_bytes = await asyncio.wait_for(q.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    if not drone_service.is_video_streaming():
+                        logger.info("[mjpeg] Video stopped")
+                        break
+                    continue
                 if frame_bytes is None:
-                    logger.info("[mjpeg] Stream ended (stall signal)")
+                    logger.info("[mjpeg] Shutdown signal")
                     break
                 count += 1
                 if count == 1:
@@ -67,7 +73,9 @@ async def video_ws(websocket: WebSocket):
     WebSocket binary video stream.
 
     Sends raw JPEG frames as binary messages — lower latency than MJPEG
-    multipart, instant stall detection via WebSocket close.
+    multipart.  Survives temporary stalls (adapter reconnect) — only
+    closes on explicit shutdown (None from stop_video) or if video is
+    stopped externally.
     """
     await websocket.accept()
     logger.info("[ws] Video WebSocket client connected")
@@ -82,10 +90,19 @@ async def video_ws(websocket: WebSocket):
     t0 = time.monotonic()
     try:
         while True:
-            frame_bytes = await q.get()
+            try:
+                frame_bytes = await asyncio.wait_for(q.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                # No frame yet — check if video was explicitly stopped
+                if not drone_service.is_video_streaming():
+                    logger.info("[ws] Video stopped — closing")
+                    await websocket.close(code=1001, reason="Video stopped")
+                    break
+                continue
             if frame_bytes is None:
-                logger.info("[ws] Stream stall signal — closing")
-                await websocket.close(code=1001, reason="Stream stalled")
+                # Explicit shutdown signal from stop_video()
+                logger.info("[ws] Shutdown signal — closing")
+                await websocket.close(code=1001, reason="Video stopped")
                 break
             count += 1
             if count == 1:

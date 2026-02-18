@@ -218,6 +218,10 @@ class WifiUavDroneController:
         self._ctr2 = 0x0001
         self._ctr3 = 0x0002
 
+        # Heartbeat: low-rate neutral RC packets to keep drone alive
+        self._heartbeat_thread: Optional[threading.Thread] = None
+        self._heartbeat_running = False
+
         self.flight_controller = WifiUavFlightController(self._send_rc_raw)
 
     def connect(self) -> bool:
@@ -246,7 +250,11 @@ class WifiUavDroneController:
 
         self.is_connected = True
         self.is_running = True
-        print("[wifi-uav] Connected (no handshake required for wifi_uav)")
+
+        # Start heartbeat — keeps drone alive with neutral RC packets
+        self._start_heartbeat()
+
+        print("[wifi-uav] Connected (heartbeat started)")
         return True
 
     def set_shared_socket(self, sock: socket.socket) -> None:
@@ -260,6 +268,7 @@ class WifiUavDroneController:
 
     def disconnect(self):
         print("[wifi-uav] Disconnecting...")
+        self._stop_heartbeat()
         if self.flight_controller.is_active:
             self.flight_controller.stop()
         self.is_running = False
@@ -270,6 +279,44 @@ class WifiUavDroneController:
             except Exception:
                 pass
             self.udp_socket = None
+
+    def _start_heartbeat(self):
+        """Start low-rate heartbeat: neutral RC packets at ~2 Hz."""
+        if self._heartbeat_running:
+            return
+        self._heartbeat_running = True
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop, daemon=True, name="WifiUavHeartbeat"
+        )
+        self._heartbeat_thread.start()
+
+    def _stop_heartbeat(self):
+        self._heartbeat_running = False
+        if self._heartbeat_thread:
+            self._heartbeat_thread.join(timeout=1.0)
+            self._heartbeat_thread = None
+
+    def _heartbeat_loop(self):
+        """Send neutral RC packets at 2 Hz when the FC is not active."""
+        while self._heartbeat_running:
+            # Skip if the flight controller is already sending at 80 Hz
+            if not self.flight_controller.is_active:
+                self._send_rc_raw(
+                    bytes([127, 127, 127, 127, 0x00, 0x02]),  # center sticks, no cmd, no headless
+                    127 ^ 127 ^ 127 ^ 127 ^ 0x00 ^ 0x02,  # XOR checksum
+                )
+            time.sleep(0.5)
+
+    def send_one_shot_rc(self, command_flag: int = 0x00):
+        """Send a single RC packet with a command flag (e.g. calibrate=0x04).
+
+        Works even when the flight controller is not armed.
+        """
+        controls = bytes([127, 127, 127, 127, command_flag & 0xFF, 0x02])
+        checksum = 0
+        for b in controls:
+            checksum ^= b
+        self._send_rc_raw(controls, checksum)
 
     def send_command(self, command: bytes, verbose: bool = False) -> bool:
         """Send raw bytes to the drone."""

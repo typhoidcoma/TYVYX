@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 from tyvyx.models.video_frame import VideoFrame
 from tyvyx.protocols.base_video_protocol import BaseVideoProtocolAdapter
 from tyvyx.utils.wifi_uav_packets import START_STREAM, REQUEST_A, REQUEST_B
-from tyvyx.utils.wifi_uav_jpeg import generate_jpeg_headers, EOI
+from tyvyx.utils.wifi_uav_jpeg import generate_jpeg_headers_full, EOI
 
 
 class WifiUavVideoProtocolAdapter(BaseVideoProtocolAdapter):
@@ -61,7 +61,7 @@ class WifiUavVideoProtocolAdapter(BaseVideoProtocolAdapter):
         self._sock = self._create_duplex_socket()
 
         # Pre-built JPEG header (SOI + quant tables + SOF0 + SOS)
-        self._jpeg_header = generate_jpeg_headers(jpeg_width, jpeg_height, components)
+        self._jpeg_header = generate_jpeg_headers_full(jpeg_width, jpeg_height, components)
 
         # Frame assembly state
         self._current_fid: int = 1
@@ -201,7 +201,8 @@ class WifiUavVideoProtocolAdapter(BaseVideoProtocolAdapter):
                         head = payload[:20].hex(" ") if payload else "(empty)"
                         self._dbg(f"[wifi-uav] RX #{rx_count}: {len(payload)} bytes  head={head}")
                     with self._pkt_lock:
-                        self._pkt_buffer.append(payload)
+                        if len(self._pkt_buffer) < 100:
+                            self._pkt_buffer.append(payload)
                     frame = self.handle_payload(payload)
                     if frame is not None:
                         try:
@@ -221,11 +222,14 @@ class WifiUavVideoProtocolAdapter(BaseVideoProtocolAdapter):
         self._rx_thread.start()
 
     def is_running(self) -> bool:
-        return bool(
-            self._running
-            and getattr(self, "_rx_thread", None)
-            and self._rx_thread.is_alive()
-        )
+        if not self._running or not getattr(self, "_rx_thread", None) or not self._rx_thread.is_alive():
+            return False
+        # Stall detection: if no packets received for 5s, trigger reconnect
+        if self._last_rx_ts > 0 and (time.time() - self._last_rx_ts) > 5.0:
+            self._dbg("[wifi-uav] Stall detected (5s), stopping for reconnect")
+            self._running = False
+            return False
+        return True
 
     def get_frame(self, timeout: float = 1.0) -> Optional[VideoFrame]:
         try:

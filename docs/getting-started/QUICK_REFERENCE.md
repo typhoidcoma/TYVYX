@@ -1,242 +1,145 @@
 # TYVYX Drone Quick Reference Card
 
 ## Network Details
+
+### K417 (WiFi UAV) — Primary
+```
+Drone IP:       192.168.169.1
+Video Port:     8800 (push-based 0x93 JPEG fragments)
+Control Port:   8801
+SSID Pattern:   Drone-* | FLOW_* | FlOW_* | K417 | HD-* | FHD-*
+Video Source:   Port 1234 (not 8800)
+Protocol:       Push-based — send START_STREAM, drone pushes JPEG
+```
+
+### E88Pro (Legacy)
 ```
 Drone IP:       192.168.1.1
-UDP Control:    7099
-UDP Video:      7070 (proprietary JPEG fragments, not RTSP)
-WiFi Pattern:   HD-720P-* | HD-FPV-* | HD720-* | FHD-*
+Video Port:     7070 (pull-based S2x JPEG fragments)
+Control Port:   7099
+SSID Pattern:   WIFI_* | GD89Pro_* | WTECH-*
+Protocol:       Pull-based — S2x 0x40 0x40 sync
 ```
 
-## Quick Start Commands
+## Quick Start
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Backend
+python -m autonomous.api.main
 
-# Test connection
-python network_diagnostics.py
+# Frontend (separate terminal)
+cd frontend && npm run dev
 
-# Basic controller (recommended)
-python drone_controller.py
-
-# Advanced with flight controls (experimental)
-python drone_controller_advanced.py
+# Open browser
+# http://localhost:5173
 ```
 
-## UDP Command Reference
+## API Endpoints
 
-| Command | Bytes | Description |
-|---------|-------|-------------|
-| Heartbeat | `01 01` | Keep connection alive (send every 1s) |
-| Initialize | `64` | Initialize/activate drone |
-| Special | `63` | Special command |
-| Camera 1 | `06 01` | Switch to camera 1 |
-| Camera 2 | `06 02` | Switch to camera 2 |
-| Screen Mode 1 | `09 01` | Screen display mode 1 |
-| Screen Mode 2 | `09 02` | Screen display mode 2 |
+| Group | Path | Key Operations |
+|-------|------|---------------|
+| Drone | `/api/drone/connect` | Connect (auto-detect protocol) |
+| Drone | `/api/drone/command` | arm, disarm, takeoff, land, calibrate, headless, camera1, camera2 |
+| Video | `/api/video/ws` | WebSocket binary frames (primary) |
+| Video | `/api/video/feed` | MJPEG HTTP stream (fallback) |
+| Position | `/api/position/current` | x, y, velocity, altitude, features |
+| Position | `/api/position/trajectory` | History (max 1000 points) |
+| Network | `/api/network/scan` | WiFi scan with drone detection |
 
-## Response Format
+## Frontend Keyboard Shortcuts
 
-**Byte 0**: Device type & resolution info
-- Bit pattern indicates GL (2) or TC (10) device type
-
-**Byte 1**: Camera switch reset state
-
-**Byte 2**: Screen switch state (1 or 2)
-
-## Basic Controller Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| Q | Quit application |
-| 1 | Switch to camera 1 |
-| 2 | Switch to camera 2 |
-| M | Toggle screen mode |
-| I | Send initialize command |
-| S | Take screenshot |
-
-## Advanced Controller Keyboard Shortcuts
-
-### Basic Controls
-| Key | Action |
-|-----|--------|
-| Q | Quit application |
-| SPACE | Start/Stop flight controller |
-| ESC | Emergency reset (center all controls) |
-
-### Camera Controls
-| Key | Action |
-|-----|--------|
-| 1 | Switch to camera 1 |
-| 2 | Switch to camera 2 |
-| M | Toggle screen mode |
-| S | Take screenshot |
-
-### Flight Controls (when active)
+### Flight Controls (when armed)
 | Key | Action |
 |-----|--------|
 | W | Pitch forward |
 | S | Pitch backward |
 | A | Roll left |
 | D | Roll right |
-| ↑ | Increase throttle |
-| ↓ | Decrease throttle |
-| ← | Yaw left |
-| → | Yaw right |
+| Arrow Up | Increase throttle |
+| Arrow Down | Decrease throttle |
+| Arrow Left | Yaw left |
+| Arrow Right | Yaw right |
 
-## Python API Quick Examples
+### UI Controls
+| Action | Location |
+|--------|----------|
+| Connect/Disconnect | Top bar button |
+| Start/Stop Video | Top bar button |
+| Arm/Disarm | Flight controls panel |
+| Takeoff/Land | Flight controls panel |
+| Calibrate | Flight controls panel |
+| Camera 1/2 | Camera switch buttons |
 
-### Connect to Drone
+## K417 UDP Commands
+
+| Command | Bytes | Purpose |
+|---------|-------|---------|
+| Start video stream | `ef 00 04 00` | Kick off push JPEG (re-sent every 100ms as keepalive) |
+| Front camera | `ef 01 02 00 06 01` | Switch to front camera |
+| Bottom camera | `ef 01 02 00 06 02` | Switch to bottom/optical flow camera |
+| RC control | `ef 02 7c 00 ...` | ~120-byte packet with rolling counters |
+
+## E88Pro UDP Commands
+
+| Command | Bytes | Purpose |
+|---------|-------|---------|
+| Heartbeat | `01 01` | Keep alive (every 1s) |
+| Initialize | `08 01` | Init drone |
+| Camera 1 | `06 01` | Switch camera |
+| Camera 2 | `06 02` | Switch camera |
+| Flight | `03 66 R P T Y F X 99` | 9-byte RC packet |
+
+## Python API
+
 ```python
-from drone_controller import TYVYXDroneController
+from tyvyx import TYVYXDroneControllerAdvanced, FlightController
 
-drone = TYVYXDroneController()
+# E88Pro direct control (no web UI)
+drone = TYVYXDroneControllerAdvanced()
 if drone.connect():
-    print("Connected!")
-```
-
-### Send Commands
-```python
-# Heartbeat
-drone.send_command(bytes([1, 1]))
-
-# Initialize
-drone.send_command(bytes([100]))
-
-# Switch camera
-drone.switch_camera(1)  # Camera 1
-drone.switch_camera(2)  # Camera 2
-```
-
-### Video Stream
-```python
-# Start video
-if drone.start_video_stream():
-    # Get frames
+    drone.start_video_stream()
     ret, frame = drone.get_frame()
-    if ret:
-        cv2.imshow('Video', frame)
+    drone.disconnect()
 ```
 
-### Full Example
-```python
-import cv2
-from drone_controller import TYVYXDroneController
-
-drone = TYVYXDroneController()
-
-if drone.connect():
-    if drone.start_video_stream():
-        while True:
-            ret, frame = drone.get_frame()
-            if ret:
-                cv2.imshow('Drone', frame)
-            
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-    
-    drone.disconnect()
-
-cv2.destroyAllWindows()
+## File Structure
+```
+TEKY/
+├── autonomous/api/main.py          # FastAPI entry point
+├── autonomous/services/            # DroneService, PositionService
+├── tyvyx/wifi_uav_controller.py    # K417 controller
+├── tyvyx/drone_controller_advanced.py  # E88Pro controller
+├── tyvyx/protocols/                # Video protocol adapters
+├── frontend/src/App.tsx            # React UI
+├── scripts/                        # Diagnostic tools
+├── config/drone_config.yaml        # All settings
+└── docs/                           # Documentation
 ```
 
 ## Troubleshooting Quick Checks
 
-### No Connection
 ```bash
-# Check if drone is reachable
+# Check drone is reachable (K417)
+ping 192.168.169.1
+
+# Check drone is reachable (E88Pro)
 ping 192.168.1.1
 
-# Test UDP with diagnostics
-python network_diagnostics.py
+# Run tests
+python -m pytest tests/ -v
+
+# Kill stuck backend (Windows)
+Get-Process python* | Stop-Process -Force
 ```
 
-### No Video
-```bash
-# Check drone is reachable
-ping 192.168.1.1
+## What Works / What Doesn't
 
-# Run UDP sniffer to check for video packets
-python -c "from tyvyx.protocols.raw_udp_sniffer import RawUdpSnifferProtocol; s = RawUdpSnifferProtocol(); s.start()"
-```
-
-### Python Issues
-```bash
-# Check Python version (need 3.7+)
-python --version
-
-# Reinstall OpenCV
-pip uninstall opencv-python
-pip install opencv-python
-```
-
-## Packet Capture for Research
-
-### Using Wireshark
-1. Install Wireshark
-2. Connect to drone WiFi
-3. Start capture on WiFi interface
-4. Filter: `udp.port == 7099`
-5. Use Android app to fly
-6. Analyze captured packets
-
-### Using tcpdump (Linux/Mac)
-```bash
-# Capture UDP on port 7099
-sudo tcpdump -i wlan0 -n udp port 7099 -XX
-
-# Save to file for later analysis
-sudo tcpdump -i wlan0 -n udp port 7099 -w drone_capture.pcap
-```
-
-## Common Issues & Quick Fixes
-
-| Issue | Quick Fix |
-|-------|-----------|
-| Can't connect | Power cycle drone, reconnect WiFi |
-| No video | Check FFmpeg, try `ffplay` test |
-| Controls unresponsive | Press ESC to reset |
-| Port in use | Wait 30s or restart app |
-| Import error | `pip install opencv-python numpy` |
-
-## Safety Checklist
-
-- [ ] Test area is clear and open
-- [ ] Drone battery is charged
-- [ ] Emergency stop ready (ESC key)
-- [ ] WiFi connection is stable
-- [ ] Local regulations checked
-- [ ] Visual line of sight maintained
-
-## File Locations
-
-```
-TYVYX_Working/
-├── drone_controller.py              # Basic controller
-├── drone_controller_advanced.py     # With flight controls
-├── network_diagnostics.py           # Testing tool
-├── REVERSE_ENGINEERING_NOTES.md     # Technical docs
-├── README.md               # Full guide
-├── QUICK_REFERENCE.md               # This file
-├── README.md                        # Project overview
-└── requirements.txt                 # Dependencies
-```
-
-## Useful Links
-
-- **FFmpeg Download**: https://ffmpeg.org/download.html
-- **Python Download**: https://www.python.org/downloads/
-- **OpenCV Docs**: https://docs.opencv.org/
-- **Wireshark**: https://www.wireshark.org/
-
-## Notes
-
-⚠️ **Flight controls are experimental** - actual commands require reverse engineering native libraries
-
-✅ **Video and camera controls work** - based on successful reverse engineering
-
-📝 **Document your findings** - help improve the project!
-
----
-
-**Need more help?** See [README.md](README.md) for detailed instructions.
+| Feature | Status |
+|---------|--------|
+| Video streaming (K417) | ~2 FPS (push protocol bottleneck) |
+| Video streaming (E88Pro) | Works |
+| Flight control | Arm, disarm, takeoff, land, calibrate, headless, manual axes |
+| Camera switch | Front and bottom cameras |
+| Position tracking | Optical flow + Kalman filter (needs calibration) |
+| SLAM / Mapping | Not started (Phase 4) |
+| Waypoint navigation | Not started (Phase 5) |
+| Battery / telemetry | Not available from drone |

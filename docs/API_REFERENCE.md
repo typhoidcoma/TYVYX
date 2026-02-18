@@ -1,108 +1,142 @@
 # TYVYX Project — API Reference
 
-This document provides a concise reference to the main modules, classes,
-and public methods in the TYVYX repository. It is intended as a quick
-starting guide for contributors and users.
+Reference for all modules, classes, and endpoints in the current codebase.
 
-## Modules
+## Quick Start
 
-- `app.py`: Minimal Flask web front-end. Provides a single route `/`
-  that returns a short status string.
+```bash
+# Backend (FastAPI, port 8000)
+python -m autonomous.api.main
 
-- `drone_controller.py`: Basic controller for video and camera-related
-  commands.
-
-- `drone_controller_advanced.py`: Experimental advanced controller that
-  includes an experimental `FlightController` for throttle/yaw/pitch/roll.
-
-- `drone_controller_yolo.py`: Video processing pipeline prepared for
-  YOLO11 integration and recording support.
-
-- `video_stream.py`: Legacy `OpenCVVideoStream` helper (deprecated — replaced
-  by UDP protocol stack).
-
-- `protocols/`: UDP video protocol adapters (`S2xVideoProtocolAdapter`,
-  `RawUdpSnifferProtocol`) that receive raw JPEG fragments from the drone.
-
-- `services/video_receiver.py`: `VideoReceiverService` — supervised video
-  reception with auto-reconnect on connection loss.
-
-- `frame_hub.py`: `FrameHub` — asyncio-based fan-out hub for distributing
-  JPEG frames to multiple MJPEG HTTP clients.
-
-- `network_diagnostics.py`: Network diagnostic utilities for testing
-  connectivity, capturing UDP packets, and experimenting with commands.
-
-## Key Classes and Methods
-
-- `TYVYXDroneController` (in `drone_controller.py`)
-  - `connect() -> bool`: Establish UDP connection and start threads.
-  - `disconnect()`: Stop threads and close sockets.
-  - `start_video_stream() -> bool`: Activate UDP video stream.
-  - `get_frame() -> (bool, np.ndarray)`: Grab a frame from the stream.
-  - `send_command(command: bytes) -> bool`: Send a UDP command to drone.
-
-- `TYVYXDroneControllerAdvanced` (in `drone_controller_advanced.py`)
-  - Same API as `TYVYXDroneController` plus a `flight_controller` attribute.
-
-- `FlightController` (in `drone_controller_advanced.py`)
-  - `start()` / `stop()`: Start/stop background command sending.
-  - `increase_throttle()`, `yaw_left()`, etc.: Small helpers to mutate
-    control channels (throttle/yaw/pitch/roll).
-
-- `DroneVideoProcessor` (in `drone_controller_yolo.py`)
-  - `load_yolo_model(model_path: str)`: Hook to load ultralytics YOLO11 model.
-  - `process_frame(frame: np.ndarray) -> (np.ndarray, list)`: Process a
-    frame, optionally run detection, and return annotated frame + detections.
-
-- `TYVYXDroneYOLO` (in `drone_controller_yolo.py`)
-  - Adds recording and processing features on top of the base controller.
-
-- `DroneNetworkDiagnostics` (in `network_diagnostics.py`)
-  - `test_ping()`, `test_udp_connection()`, `capture_udp_packets(duration)`
-    and other helpers for diagnosing network issues and experimental commands.
-
-## Common Constants
-
-- `DRONE_IP`: 192.168.1.1 (default drone address)
-- `UDP_PORT`: 7099 (control channel)
-- `VIDEO_PORT`: 7070 (UDP video stream)
-
-## Quick Start Examples
-
-- Run the basic controller:
-
-```
-python drone_controller.py
+# Frontend (React + Vite, port 5173)
+cd frontend && npm run dev
 ```
 
-- Run the advanced controller (experimental flight controls):
+Open http://localhost:5173 in your browser.
 
-```
-python drone_controller_advanced.py
-```
+## REST API Endpoints
 
-- Run the YOLO-ready processor (enable YOLO by installing ultralytics and
-  uncommenting the code in `drone_controller_yolo.py`):
+### Drone Control — `/api/drone`
 
-```
-python drone_controller_yolo.py
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/drone/connect` | Connect to drone (auto-detects protocol by subnet) |
+| POST | `/api/drone/disconnect` | Disconnect and stop all streams |
+| GET | `/api/drone/status` | Connection state, video streaming, flight armed |
+| POST | `/api/drone/command` | Send command: `start_video`, `stop_video`, `arm`, `disarm`, `takeoff`, `land`, `calibrate`, `headless`, `camera1`, `camera2` |
 
-- Run network diagnostics:
+### Video Streaming — `/api/video`
 
-```
-python network_diagnostics.py
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| WS | `/api/video/ws` | WebSocket binary frames (primary, lowest latency) |
+| GET | `/api/video/feed` | MJPEG HTTP stream (fallback for browsers) |
+| GET | `/api/video/test` | Synthetic test frames (no drone needed) |
+| GET | `/api/video/status` | Streaming state and frame stats |
+| GET | `/api/video/capabilities` | Available transports |
 
-## Notes & Safety
+### Position Tracking — `/api/position`
 
-- Flight control features are experimental. Do not attempt to fly in
-  constrained or unsafe environments when using experimental commands.
-- Several methods assume you are connected to the drone's WiFi network
-  and that FFmpeg/OpenCV are correctly installed on the host.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/position/current` | Position (x, y), velocity, altitude, feature count |
+| GET | `/api/position/trajectory` | History with timestamps (max 1000 points) |
+| GET | `/api/position/statistics` | Uncertainty, measurement data |
+| POST | `/api/position/start` | Enable optical flow tracking |
+| POST | `/api/position/stop` | Disable tracking |
+| POST | `/api/position/reset` | Reset position to (x, y) |
+| POST | `/api/position/altitude` | Set altitude for velocity scaling |
+| POST | `/api/position/clear_trajectory` | Clear trajectory history |
 
-## Contribution
+### Network — `/api/network`
 
-If you add or change public APIs, update this file with method signatures
-and short descriptions so other contributors can find and use them.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/network/scan` | Scan WiFi networks, flag drone-like SSIDs |
+
+## Core Modules
+
+### Drone Controllers (`tyvyx/`)
+
+**`WifiUavDroneController`** (`tyvyx/wifi_uav_controller.py`)
+- Primary controller for K417 drones (192.168.169.1)
+- RC packet construction with rolling 16-bit counters (~120 bytes)
+- Heartbeat: 2 Hz neutral, 80 Hz armed
+- Socket sharing with video adapter (single-port constraint)
+- `WifiUavFlightController` — arm/disarm, takeoff/land, calibrate, headless, axis control
+
+**`TYVYXDroneControllerAdvanced`** (`tyvyx/drone_controller_advanced.py`)
+- Legacy E88Pro controller (192.168.1.1)
+- 9-byte flight packets: `[0x03, 0x66, roll, pitch, throttle, yaw, flags, xor, 0x99]`
+- `FlightController` — same command interface as WifiUavFlightController
+
+### Video Pipeline (`tyvyx/protocols/`, `tyvyx/services/`)
+
+**`PushJpegVideoProtocolAdapter`** (`tyvyx/protocols/push_jpeg_video_protocol.py`)
+- K417 push-based JPEG: 0x93 0x01 magic, 56-byte header, fragment reassembly
+- Sends `START_STREAM` (0xef 0x00 0x04 0x00) as keepalive every 100ms
+- Generates JPEG headers (SOI+DQT+DHT+SOF0+SOS) from raw fragment data
+
+**`S2xVideoProtocolAdapter`** (`tyvyx/protocols/s2x_video_protocol.py`)
+- E88Pro pull-based JPEG: 0x40 0x40 sync bytes
+
+**`VideoReceiverService`** (`tyvyx/services/video_receiver.py`)
+- Manages protocol adapter lifecycle with auto-reconnect
+
+**`FrameHub`** (`tyvyx/frame_hub.py`)
+- Asyncio fan-out hub: distributes JPEG frames to multiple clients via per-client queues (size 2, drop-oldest)
+
+### Position Tracking (`autonomous/perception/`, `autonomous/localization/`)
+
+**`OpticalFlowTracker`** (`autonomous/perception/optical_flow_tracker.py`)
+- Sparse Lucas-Kanade optical flow (CPU + CUDA auto-detection)
+- Feature re-detection when count drops below threshold
+- Outlier rejection by tracking status + flow magnitude
+
+**`PositionEstimator`** (`autonomous/localization/position_estimator.py`)
+- Kalman filter (4D state: x, y, vx, vy) with constant velocity model
+- Alternative: `SimpleDeadReckoning` (velocity integration)
+
+**`CoordinateTransformer`** (`autonomous/localization/coordinate_transforms.py`)
+- Pixel velocity to world velocity conversion (depends on altitude + camera matrix)
+
+### Services (`autonomous/services/`)
+
+**`DroneService`** (`autonomous/services/drone_service.py`)
+- Singleton hub managing drone connections, video pipeline, and flight control
+- Auto-detects protocol: 192.168.169.x = WiFi UAV (K417), else = E88Pro
+- Frame pump bridges threading (UDP) to asyncio (FrameHub)
+- Feeds frames to position service at ~10 Hz
+
+**`PositionService`** (`autonomous/services/position_service.py`)
+- Singleton wrapping optical flow tracker + Kalman filter
+
+**`NetworkService`** (`autonomous/services/network_service.py`)
+- WiFi scanning with drone SSID pattern matching
+
+## Network Constants
+
+| Drone | IP | Video Port | Control Port | Protocol |
+|-------|------|-----------|-------------|----------|
+| K417 (WiFi UAV) | 192.168.169.1 | 8800 | 8801 | Push-based 0x93 JPEG |
+| E88Pro (legacy) | 192.168.1.1 | 7070 | 7099 | Pull-based S2x JPEG |
+
+## Diagnostic Scripts (`scripts/`)
+
+| Script | Purpose |
+|--------|---------|
+| `probe_drone.py` | Network connectivity + protocol probing |
+| `analyze_packets.py` | Packet capture analysis |
+| `fingerprint_9301.py` | Classify 0x93 packet variants |
+| `probe_camera.py` | JieLi camera module probing (192.168.100.1) |
+| `probe_camera_switch.py` | Test camera switch commands |
+| `probe_lxpro_handshake.py` | lxPro encrypted protocol research |
+| `post_connect.py` | Manual connection test via API |
+| `post_drone_command.py` | Send commands via API |
+| `get_video_status.py` | Check video streaming status |
+
+## Notes
+
+- FFmpeg is **not** required — the video pipeline uses direct UDP JPEG passthrough
+- All sockets bind to the detected drone WiFi adapter IP, not `0.0.0.0`
+- The K417 requires all UDP traffic from a single source port (video + control share one socket)

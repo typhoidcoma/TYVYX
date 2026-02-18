@@ -16,7 +16,6 @@ Detailed guides for each development phase and feature:
 
 - **[Phase 1: Flight Control Calibration](guides/phase1-calibration.md)** - Calibrate flight controls and test basic functionality
 - **[Phase 2: React + FastAPI Web App](guides/phase2-webapp.md)** - Modern web interface setup and usage
-- **[YOLO11 Object Detection](guides/yolo-integration.md)** - Integrate computer vision for autonomous features
 - **[Turbodrone Architecture Integration](guides/turbodrone-architecture.md)** - Autonomous navigation architecture patterns
 
 ## Technical Reference
@@ -42,8 +41,7 @@ Want to contribute to TYVYX?
 - ✅ Phase 2: React + FastAPI web interface
 
 ### In Progress
-- 🚧 Phase 3: Optical flow position estimation
-- 🚧 Advanced autonomous navigation
+- 🚧 Phase 3: Optical flow position estimation (~85% complete — needs camera calibration and real-world validation)
 
 ### Planned
 - 📋 Phase 4: SLAM integration

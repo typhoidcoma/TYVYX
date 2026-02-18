@@ -1,24 +1,12 @@
 # Runtime requirements for TYVYX drone controllers and web app
 opencv-python>=4.8.0
 numpy>=1.24.0
-flask>=2.0.0
 
 # Autonomous system dependencies (Phase 2+)
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 pydantic>=2.4.0
 pyyaml>=6.0.1
-python-socketio>=5.10.0
-aiofiles>=23.2.1
-
-# YOLO inference (GPU via CUDA auto-selected when torch+CUDA is installed)
-ultralytics>=8.0.0
-
-# PyTorch — install the CUDA 12.x build for RTX 3090 GPU acceleration (sm_86):
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121 --force-reinstall
-# CPU-only fallback (auto-installed by ultralytics if torch not already present):
-torch>=2.0.0
-torchvision>=0.15.0
 
 # OpenCV — standard build (CPU only, works out of the box)
 # For CUDA-accelerated optical flow (cv2.cuda.*), build OpenCV from source

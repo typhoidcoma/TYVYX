@@ -15,6 +15,9 @@ interface DebugStats {
   frameCount: number
 }
 
+const MAX_WS_RETRIES = 3
+const WS_RETRY_DELAY = 2000 // ms between reconnect attempts
+
 export function DroneVideo({ streaming, testMode = false, className = '' }: Props) {
   const imgRef = useRef<HTMLImageElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
@@ -22,6 +25,7 @@ export function DroneVideo({ streaming, testMode = false, className = '' }: Prop
   const [transport, setTransport] = useState<Transport>('connecting')
   const [debug, setDebug] = useState<DebugStats>({ fps: 0, frameSize: 0, frameCount: 0 })
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wsRetries = useRef(0)
 
   // FPS tracking refs (avoid re-renders per frame)
   const fpsCounter = useRef(0)
@@ -60,14 +64,10 @@ export function DroneVideo({ streaming, testMode = false, className = '' }: Prop
   const connectWs = useCallback(() => {
     cleanup()
     setTransport('connecting')
-    setDebug({ fps: 0, frameSize: 0, frameCount: 0 })
-    fpsCounter.current = 0
-    totalCount.current = 0
-    lastSize.current = 0
 
     // Test mode uses /api/video/test, live mode uses /api/video/ws
     const wsPath = testMode ? '/api/video/test' : '/api/video/ws'
-    console.log(`[DroneVideo] Connecting WebSocket to ${wsPath}...`)
+    console.log(`[DroneVideo] Connecting WebSocket to ${wsPath} (attempt ${wsRetries.current + 1})...`)
     const ws = new WebSocket(`${WS_BASE_URL}${wsPath}`)
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
@@ -85,6 +85,7 @@ export function DroneVideo({ streaming, testMode = false, className = '' }: Prop
     ws.onopen = () => {
       console.log('[DroneVideo] WebSocket connected')
       setTransport('websocket')
+      wsRetries.current = 0 // reset retry count on successful connection
     }
 
     ws.onmessage = (e) => {
@@ -111,19 +112,33 @@ export function DroneVideo({ streaming, testMode = false, className = '' }: Prop
     ws.onclose = (e) => {
       console.warn(`[DroneVideo] WebSocket closed: code=${e.code} reason=${e.reason}`)
       wsRef.current = null
-      reconnectTimer.current = setTimeout(() => {
+
+      // Retry WS before falling back to MJPEG
+      wsRetries.current++
+      if (wsRetries.current <= MAX_WS_RETRIES) {
+        console.log(`[DroneVideo] Reconnecting WS in ${WS_RETRY_DELAY}ms (retry ${wsRetries.current}/${MAX_WS_RETRIES})...`)
+        reconnectTimer.current = setTimeout(() => {
+          connectWs()
+        }, WS_RETRY_DELAY)
+      } else {
+        console.warn(`[DroneVideo] Max WS retries reached, falling back to MJPEG`)
         fallbackToMjpeg()
-      }, 1000)
+      }
     }
 
     ws.onerror = () => {
+      // onclose will fire after onerror, let it handle retry logic
       console.error('[DroneVideo] WebSocket error')
-      fallbackToMjpeg()
     }
   }, [cleanup, fallbackToMjpeg, testMode])
 
   useEffect(() => {
     if (streaming || testMode) {
+      wsRetries.current = 0
+      fpsCounter.current = 0
+      totalCount.current = 0
+      lastSize.current = 0
+      setDebug({ fps: 0, frameSize: 0, frameCount: 0 })
       connectWs()
     } else {
       cleanup()

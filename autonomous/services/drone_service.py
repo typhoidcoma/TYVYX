@@ -206,7 +206,7 @@ class DroneService:
             "control_port": self.drone.UDP_PORT,
             "video_port": self.drone.UDP_PORT,
             "bind_ip": getattr(self, '_bind_ip', ""),
-            "debug": True,
+            "debug": False,
         }
 
         return self._start_video_pipeline(adapter_cls, adapter_args, "wifi_uav")
@@ -305,7 +305,7 @@ class DroneService:
         last_log_time = time.monotonic()
         stall_notified = False
         STALL_TIMEOUT = 3.0
-        LOG_INTERVAL = 5.0  # print stats every 5s
+        LOG_INTERVAL = 30.0  # print stats every 30s
 
         while not stop_event.is_set():
             try:

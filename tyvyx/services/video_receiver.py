@@ -78,7 +78,7 @@ class VideoReceiverService:
                     self.protocol = None
 
             if self._running.is_set():
-                print("[VideoReceiverService] Waiting 5s before reconnecting...")
-                time.sleep(5)
+                print("[VideoReceiverService] Waiting 2s before reconnecting...")
+                time.sleep(2)
 
         print("[VideoReceiverService] Receiver loop stopped.")

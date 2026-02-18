@@ -66,7 +66,8 @@
       "Bash(test:*)",
       "Bash(mount:*)",
       "Bash(npx vite build)",
-      "Bash(.venv/Scripts/python.exe:*)"
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(git checkout:*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\tesse\\.claude\\projects\\i--Projects-Drones-TEKY\\memory"

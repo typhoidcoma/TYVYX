@@ -80,7 +80,7 @@ function App() {
 
         {/* Header */}
         <header className="mb-6 flex items-center gap-5">
-          <img src="/tyvyx_logo.svg" alt="TYVYX" className="h-14 w-auto" />
+          <img src="/tyvyx_logo_1.svg" alt="TYVYX" className="h-14 w-auto" />
           <div>
             <h1 className="text-3xl font-bold">Drone Control</h1>
             <p className="text-muted text-sm">Phase 3: Position Tracking</p>

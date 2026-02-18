@@ -9,6 +9,7 @@ import asyncio
 import concurrent.futures
 import logging
 import queue
+import socket
 import sys
 import threading
 from pathlib import Path
@@ -27,6 +28,8 @@ from tyvyx.services.video_receiver import VideoReceiverService
 from tyvyx.protocols.s2x_video_protocol import S2xVideoProtocolAdapter
 from tyvyx.protocols.push_jpeg_video_protocol import PushJpegVideoProtocolAdapter
 from tyvyx.protocols.raw_udp_sniffer import RawUdpSnifferProtocol
+from tyvyx.protocols.tcp_video_protocol import TcpVideoProtocolAdapter
+from tyvyx.protocols.rtsp_video_protocol import RtspVideoProtocolAdapter
 from tyvyx.utils.dropping_queue import DroppingQueue
 from tyvyx.frame_hub import FrameHub
 from autonomous.services.position_service import position_service
@@ -41,12 +44,42 @@ PROTOCOL_E88PRO = "e88pro"
 PROTOCOL_WIFI_UAV = "wifi_uav"
 
 
-def detect_protocol(drone_ip: str) -> str:
-    """Detect drone protocol based on IP address.
+def detect_protocol(drone_ip: str, ssid: str = "",
+                    probe_port: int = 0) -> str:
+    """Detect drone protocol from probe result, then SSID, then IP.
 
-    WiFi UAV drones (K417, etc.) use 192.168.169.x subnet.
-    E88Pro drones use 192.168.1.x subnet.
+    Priority 1 — probe port (most reliable, from UDP response):
+      Port 8800 → WiFi UAV (push-based 0x93, BL618)
+      Port 7099 → E88Pro / lxPro (JieLi-based)
+
+    Priority 2 — SSID (from APK reverse engineering — xo.java):
+      FLOW_ / FlOW_ / Drone- / K417 / HD-FPV → WiFi UAV
+      WIFI_ / GD89Pro_ / WTECH- / FLOW-      → E88Pro / lxPro
+      Note: FLOW_ (underscore) = WiFi UAV, FLOW- (dash) = lxPro
+
+    Priority 3 — IP subnet fallback:
+      192.168.169.x → WiFi UAV
+      anything else  → E88Pro
     """
+    # Probe port is the ground truth
+    if probe_port == 8800:
+        return PROTOCOL_WIFI_UAV
+    if probe_port == 7099:
+        return PROTOCOL_E88PRO
+
+    if ssid:
+        ssid_upper = ssid.upper()
+        # WiFi UAV family (K417, BL618-based)
+        # Note: FLOW_ (underscore) NOT FLOW- (dash) — dash is lxPro/E88Pro
+        wifi_uav_prefixes = ["FLOW_", "FLOW ", "DRONE-", "K417", "HD-FPV", "TYVYX"]
+        if any(ssid_upper.startswith(p) for p in wifi_uav_prefixes):
+            return PROTOCOL_WIFI_UAV
+        # E88Pro / lxPro family (JieLi-based)
+        e88pro_prefixes = ["WIFI_", "GD89PRO_", "WTECH-", "FLOW-"]
+        if any(ssid_upper.startswith(p) for p in e88pro_prefixes):
+            return PROTOCOL_E88PRO
+
+    # IP-based fallback
     if drone_ip.startswith("192.168.169."):
         return PROTOCOL_WIFI_UAV
     return PROTOCOL_E88PRO
@@ -93,7 +126,9 @@ class DroneService:
 
     async def connect(self, drone_ip: str,
                       bind_ip: str = "",
-                      protocol: str = "") -> bool:
+                      protocol: str = "",
+                      ssid: str = "",
+                      probe_port: int = 0) -> bool:
         # Auto-disconnect stale connection before reconnecting
         if self._connected or self.drone:
             logger.info("Cleaning up previous connection before reconnecting...")
@@ -101,7 +136,8 @@ class DroneService:
 
         try:
             # Auto-detect protocol if not explicitly provided
-            self._drone_protocol = protocol or detect_protocol(drone_ip)
+            self._drone_protocol = protocol or detect_protocol(
+                drone_ip, ssid=ssid, probe_port=probe_port)
             self._bind_ip = bind_ip
 
             logger.info(f"Connecting to drone at {drone_ip} "
@@ -174,7 +210,7 @@ class DroneService:
             if self._drone_protocol == PROTOCOL_WIFI_UAV:
                 protocol = "wifi_uav"
             else:
-                protocol = "s2x"
+                protocol = self._detect_e88pro_video_protocol()
 
         try:
             logger.info(f"Starting video stream (protocol={protocol})...")
@@ -183,6 +219,10 @@ class DroneService:
                 return await self._start_video_wifi_uav()
             elif protocol == "s2x":
                 return await self._start_video_s2x()
+            elif protocol == "rtsp":
+                return await self._start_video_rtsp()
+            elif protocol == "tcp":
+                return await self._start_video_tcp()
             elif protocol == "sniffer":
                 return await self._start_video_sniffer()
             else:
@@ -269,6 +309,86 @@ class DroneService:
         }
 
         return self._start_video_pipeline(adapter_cls, adapter_args, "sniffer")
+
+    async def _start_video_tcp(self) -> dict:
+        """Start video using TCP MJPEG protocol (lxPro / Mten drones).
+
+        These drones serve JPEG video over TCP 7070 instead of UDP.
+        E88Pro init commands are sent by the adapter itself.
+        """
+        adapter_cls = TcpVideoProtocolAdapter
+        adapter_args = {
+            "drone_ip": self.drone.DRONE_IP,
+            "video_port": 7070,
+            "control_port": self.drone.UDP_PORT,
+            "bind_ip": getattr(self, '_bind_ip', ""),
+        }
+
+        return self._start_video_pipeline(adapter_cls, adapter_args, "tcp")
+
+    async def _start_video_rtsp(self) -> dict:
+        """Start video using RTSP/RTP MJPEG (lxPro drones like Mten/FLOW-UFO).
+
+        These drones serve RTSP on TCP 7070 with RTP/MJPEG (PT 26) over UDP.
+        E88Pro init commands wake up the camera hardware.
+        """
+        adapter_cls = RtspVideoProtocolAdapter
+        adapter_args = {
+            "drone_ip": self.drone.DRONE_IP,
+            "video_port": 7070,
+            "control_port": self.drone.UDP_PORT,
+            "bind_ip": getattr(self, '_bind_ip', ""),
+            "rtsp_path": "/webcam",
+        }
+
+        return self._start_video_pipeline(adapter_cls, adapter_args, "rtsp")
+
+    def _detect_e88pro_video_protocol(self) -> str:
+        """Auto-detect whether an E88Pro drone uses RTSP, raw TCP, or UDP video.
+
+        Connects to TCP 7070 and sends an RTSP OPTIONS probe:
+          - RTSP response → "rtsp" (RTP/MJPEG, e.g. Mten/FLOW-UFO)
+          - TCP open but no RTSP → "tcp" (raw MJPEG stream)
+          - TCP closed → "s2x" (UDP)
+        """
+        if not self.drone:
+            return "s2x"
+
+        drone_ip = self.drone.DRONE_IP
+        bind_ip = getattr(self, '_bind_ip', "")
+
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2.0)
+            if bind_ip:
+                sock.bind((bind_ip, 0))
+            result = sock.connect_ex((drone_ip, 7070))
+            if result != 0:
+                sock.close()
+                logger.info("E88Pro video: TCP 7070 closed -> using s2x adapter")
+                return "s2x"
+
+            # TCP 7070 is open — check if it speaks RTSP
+            try:
+                sock.send(b"OPTIONS rtsp://%s:7070/ RTSP/1.0\r\n"
+                          b"CSeq: 1\r\n\r\n" % drone_ip.encode())
+                sock.settimeout(1.5)
+                resp = sock.recv(256)
+                if b"RTSP" in resp and b"200" in resp:
+                    sock.close()
+                    logger.info("E88Pro video: RTSP detected on TCP 7070 -> using rtsp adapter")
+                    return "rtsp"
+            except (socket.timeout, OSError):
+                pass
+
+            sock.close()
+            logger.info("E88Pro video: TCP 7070 open (no RTSP) -> using tcp adapter")
+            return "tcp"
+        except OSError as e:
+            logger.debug("E88Pro video: TCP probe error: %s", e)
+
+        logger.info("E88Pro video: TCP 7070 closed -> using s2x adapter")
+        return "s2x"
 
     def _start_video_pipeline(self, adapter_cls, adapter_args: dict,
                               protocol_name: str,

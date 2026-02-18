@@ -4,6 +4,9 @@ Network API Routes
 Endpoints for scanning WiFi networks and identifying drone hotspots.
 """
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import List, Optional
@@ -11,6 +14,9 @@ from typing import List, Optional
 from autonomous.services.network_service import scan_wifi_networks, get_current_ssid, find_drone_interface
 
 router = APIRouter(prefix="/api/network", tags=["network"])
+
+# Dedicated thread pool for blocking network calls (netsh, socket probes)
+_net_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="net-scan")
 
 
 class WifiNetworkSchema(BaseModel):
@@ -39,10 +45,12 @@ async def scan():
     Drone-likely networks (matching known SSID patterns) are flagged with is_drone=true
     and sorted to the top. Also returns the currently connected SSID.
     """
-    networks = scan_wifi_networks()
-    current_ssid = get_current_ssid()
-
-    drone_iface = find_drone_interface()  # no hardcoded IP — uses gateway detection
+    loop = asyncio.get_event_loop()
+    networks, current_ssid, drone_iface = await asyncio.gather(
+        loop.run_in_executor(_net_pool, scan_wifi_networks),
+        loop.run_in_executor(_net_pool, get_current_ssid),
+        loop.run_in_executor(_net_pool, find_drone_interface),
+    )
     connected_to_drone = drone_iface is not None
 
     # Use the drone adapter's SSID for consistency

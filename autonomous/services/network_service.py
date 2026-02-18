@@ -19,7 +19,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # SSIDs matching these prefixes are flagged as likely drone networks
-DRONE_SSID_PATTERNS = ["HD-", "FHD-", "HD720", "K417", "HD-FPV", "TYVYX", "drone", "Drone-"]
+DRONE_SSID_PATTERNS = ["HD-", "FHD-", "HD720", "K417", "HD-FPV", "TYVYX", "drone", "Drone-", "UFO", "FLOW"]
 
 
 @dataclass
@@ -43,6 +43,7 @@ class DroneAdapter:
     state: str                # e.g. "connected", "disconnected"
     local_ip: Optional[str] = None
     gateway_ip: Optional[str] = None  # Default gateway = drone IP
+    probe_port: Optional[int] = None  # Port that responded to probe (7099=E88Pro, 8800=WiFi UAV)
     is_drone: bool = field(init=False)
 
     def __post_init__(self):
@@ -265,17 +266,48 @@ def _get_adapter_info(adapter_name: str) -> tuple:
     return (local_ip, gateway_ip)
 
 
+def _get_subnet_hosts(local_ip, gateway_ip):
+    # type: (str, Optional[str]) -> List[str]
+    """Get candidate drone IPs from ARP table on the same /24 subnet.
+
+    On a drone WiFi network the only other device is the drone itself.
+    Returns gateway first (most common case), then other ARP entries.
+    """
+    subnet = ".".join(local_ip.split(".")[:3]) + "."
+
+    candidates = []  # type: List[str]
+    if gateway_ip and gateway_ip.startswith(subnet):
+        candidates.append(gateway_ip)
+
+    try:
+        result = subprocess.run(
+            ["arp", "-a"], capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            m = re.search(r"(\d+\.\d+\.\d+\.\d+)", line)
+            if m:
+                ip = m.group(1)
+                if (ip.startswith(subnet) and ip != local_ip
+                        and ip not in candidates and not ip.endswith(".255")):
+                    candidates.append(ip)
+    except Exception:
+        pass
+
+    return candidates
+
+
 def _probe_drone_udp(drone_ip: str, bind_ip: str,
                      ports: Optional[List[int]] = None,
-                     timeout: float = 1.5) -> Optional[int]:
-    """Send a heartbeat to the drone and check if it responds.
+                     timeout: float = 1.0) -> Optional[int]:
+    """Send protocol probes to the drone and check if it responds.
 
-    Probes each port in `ports` (default: [7099, 8800] for E88Pro and wifi_uav).
+    Sends both E88Pro heartbeat and WiFi UAV START_STREAM on each port.
+    Probes ports in order (default: [8800, 7099] — WiFi UAV first).
     Returns the port that responded, or None if no response.
     """
     import sys
     if ports is None:
-        ports = [7099, 8800]
+        ports = [8800, 7099]
 
     for port in ports:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -292,8 +324,9 @@ def _probe_drone_udp(drone_ip: str, bind_ip: str,
                     ctypes.byref(ret), None, None,
                 )
             sock.bind((bind_ip, 0))
-            sock.sendto(bytes([0x01, 0x01]), (drone_ip, port))  # heartbeat
-            data, _ = sock.recvfrom(1024)
+            sock.sendto(bytes([0x01, 0x01]), (drone_ip, port))  # E88Pro heartbeat
+            sock.sendto(bytes([0xef, 0x00, 0x04, 0x00]), (drone_ip, port))  # WiFi UAV START_STREAM
+            data, _ = sock.recvfrom(2048)
             if len(data) > 0:
                 return port
         except (socket.timeout, ConnectionResetError, OSError):
@@ -358,7 +391,7 @@ def _find_adapter_by_gateway_probe() -> Optional[DroneAdapter]:
     # Probe each gateway for a drone response
     for adapter_name, adapter_ip, gateway_ip in candidates:
         logger.debug(f"Probing gateway {gateway_ip} from {adapter_name} ({adapter_ip})...")
-        port = _probe_drone_udp(gateway_ip, bind_ip=adapter_ip)
+        port = _probe_drone_udp(gateway_ip, bind_ip=adapter_ip, timeout=0.5)
         if port is not None:
             logger.info(
                 f"Drone verified at gateway {gateway_ip}:{port} via "
@@ -370,6 +403,7 @@ def _find_adapter_by_gateway_probe() -> Optional[DroneAdapter]:
             adapter.is_drone = True
             adapter.local_ip = adapter_ip
             adapter.gateway_ip = gateway_ip
+            adapter.probe_port = port
             return adapter
         else:
             logger.debug(
@@ -384,10 +418,11 @@ def find_drone_interface() -> Optional[DroneAdapter]:
     """Find the network adapter connected to the drone.
 
     Strategy:
-    1. Check WiFi interfaces for a drone SSID — get both local IP and
-       gateway IP (gateway = drone IP since the drone is the AP).
+    1. Check WiFi interfaces for a drone SSID — probe gateway + ARP
+       candidates to find the actual drone IP (some drones serve on a
+       different IP than the gateway).
     2. Fallback: probe the gateway of every adapter for a drone response
-       on known ports (7099, 8800).
+       on known ports (8800, 7099).
 
     Returns None if no adapter is connected to a drone network.
     """
@@ -397,12 +432,33 @@ def find_drone_interface() -> Optional[DroneAdapter]:
         if iface.is_drone and iface.ssid:
             local_ip, gateway_ip = _get_adapter_info(iface.name)
             iface.local_ip = local_ip
-            iface.gateway_ip = gateway_ip
             if iface.local_ip:
+                # Probe candidate IPs to find where drone services live.
+                # Usually the gateway, but some drones (e.g. Mten) serve
+                # on a different IP on the same subnet.
+                # Limit to gateway + first 2 ARP entries to keep scan fast
+                # (each probe takes ~2s on timeout, full ARP can be 10+ hosts).
+                candidates = _get_subnet_hosts(local_ip, gateway_ip)[:3]
+                drone_ip = gateway_ip  # default fallback
+                probe_port = None
+                for cip in candidates:
+                    port = _probe_drone_udp(cip, bind_ip=local_ip,
+                                            timeout=0.5)
+                    if port is not None:
+                        drone_ip = cip
+                        probe_port = port
+                        if cip != gateway_ip:
+                            logger.info(
+                                f"Drone services at {cip} (gateway is {gateway_ip})"
+                            )
+                        break
+
+                iface.gateway_ip = drone_ip
+                iface.probe_port = probe_port
                 logger.info(
                     f"Drone WiFi adapter found: {iface.name} -> "
                     f"SSID={iface.ssid}, IP={iface.local_ip}, "
-                    f"Gateway={iface.gateway_ip}"
+                    f"Drone={iface.gateway_ip}"
                 )
                 return iface
             else:

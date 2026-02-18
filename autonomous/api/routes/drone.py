@@ -58,6 +58,7 @@ async def connect(request: ConnectRequest):
 
         # Auto-detect adapter, bind IP, and drone IP (gateway) from WiFi
         drone_iface = find_drone_interface()
+        ssid = ""
 
         if not drone_ip and drone_iface and drone_iface.gateway_ip:
             drone_ip = drone_iface.gateway_ip  # gateway = drone IP
@@ -67,6 +68,13 @@ async def connect(request: ConnectRequest):
             bind_ip = drone_iface.local_ip
             logger.info(f"Auto-detected bind IP: {drone_iface.name} -> {bind_ip}")
 
+        if drone_iface and drone_iface.ssid:
+            ssid = drone_iface.ssid
+
+        probe_port = 0
+        if drone_iface and drone_iface.probe_port:
+            probe_port = drone_iface.probe_port
+
         if not drone_ip:
             raise HTTPException(
                 status_code=400,
@@ -75,7 +83,8 @@ async def connect(request: ConnectRequest):
             )
 
         success = await drone_service.connect(
-            drone_ip, bind_ip=bind_ip, protocol=request.protocol or ""
+            drone_ip, bind_ip=bind_ip, protocol=request.protocol or "",
+            ssid=ssid, probe_port=probe_port,
         )
 
         if success:

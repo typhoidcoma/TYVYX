@@ -25,7 +25,6 @@ from tyvyx.drone_controller_advanced import TYVYXDroneControllerAdvanced
 from tyvyx.wifi_uav_controller import WifiUavDroneController
 from tyvyx.services.video_receiver import VideoReceiverService
 from tyvyx.protocols.s2x_video_protocol import S2xVideoProtocolAdapter
-from tyvyx.protocols.wifi_uav_video_protocol import WifiUavVideoProtocolAdapter
 from tyvyx.protocols.push_jpeg_video_protocol import PushJpegVideoProtocolAdapter
 from tyvyx.protocols.raw_udp_sniffer import RawUdpSnifferProtocol
 from tyvyx.utils.dropping_queue import DroppingQueue

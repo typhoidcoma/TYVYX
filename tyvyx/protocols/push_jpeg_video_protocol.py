@@ -32,7 +32,7 @@ import time
 from typing import Dict, List, Optional
 
 from tyvyx.models.video_frame import VideoFrame
-from tyvyx.utils.wifi_uav_packets import START_STREAM
+from tyvyx.utils.wifi_uav_packets import START_STREAM, RC_COUNTER2_SUFFIX, RC_COUNTER3_SUFFIX
 from tyvyx.utils.wifi_uav_jpeg import generate_jpeg_headers_full, EOI
 
 
@@ -40,7 +40,7 @@ from tyvyx.utils.wifi_uav_jpeg import generate_jpeg_headers_full, EOI
 MAGIC = b"\x93\x01"
 HEADER_SIZE = 56          # Bytes 0-55 are header, 56+ is payload
 MAX_PACKET_SIZE = 1080
-KEEPALIVE_INTERVAL = 0.1  # Re-send START_STREAM (100ms / 10 Hz — sweet spot for half-duplex WiFi)
+KEEPALIVE_INTERVAL = 0.05  # 50ms / 20 Hz (emulator sends each type at ~20Hz)
 
 # Header field offsets (confirmed via live packet capture + BL-UAVSDK RE)
 OFF_PKT_LEN = 2           # LE uint16: total packet size
@@ -57,7 +57,7 @@ ACK_MAGIC = 0xEF
 ACK_TYPE = 0x02
 ACK_HDR_SIZE = 88         # control_msg_ack_header
 ACK_ITEM_SIZE = 80        # control_msg_ack_payload_item (BL618: seq + received + len + bitmap[64])
-ACK_VER = 0x01000202      # Protocol version (extracted from REQUEST_A packet)
+ACK_VER = 0x01000202      # Protocol version (try 0 if this doesn't work)
 
 # Neutral 20-byte RC packet embedded in ACK flyctl_msg_data[64]
 # 0x66 header, length=20, sticks=center(0x80), no commands, flags_b=0x02(no headless)
@@ -132,10 +132,15 @@ class PushJpegVideoProtocolAdapter:
         # ACK protocol state (bitmap fragment acknowledgment for flow control)
         self._seq_fly = 0              # Current frame's sequence number from drone
         self._ack_seq = 0              # Rolling ACK packet counter (flyctl_msg_seq)
-        self._ack_port = 8801          # Drone control port for ACKs
+        self._ack_port = 8800          # Drone control port for ACKs (8801 doesn't exist — ICMP unreachable)
         self._ack_bitmap = bytearray(64)   # 512-bit fragment receipt bitmap
         self._frame_payload_len = 0    # Accumulated payload bytes for current frame
         self._acks_sent = 0            # Total ACK packets sent
+
+        # 124-byte keepalive state (replaces START_STREAM in steady state)
+        self._ka_ctr1 = 0x0000
+        self._ka_ctr2 = 0x0001
+        self._ka_ctr3 = 0x0002
 
         self._dbg(f"[push-jpeg] Adapter created  drone={drone_ip}:{control_port}  "
                   f"bind={bind_ip or '*'}  sock={self._sock.getsockname()}")
@@ -248,14 +253,53 @@ class PushJpegVideoProtocolAdapter:
         except OSError:
             pass
 
-    def _keepalive_loop(self) -> None:
-        """Continuously pump START_STREAM to drive the video stream.
+    # 124-byte keepalive constants (emulator-verified format)
+    _KA_HEADER = bytes([
+        0xef, 0x02, 0x7c, 0x00,   # magic + length=124
+        0x02, 0x02, 0x00, 0x01,   # version
+        0x02, 0x00, 0x00, 0x00,   # byte 8 = 0x02 (keepalive type)
+    ])
+    _KA_TAIL = bytes([0x32, 0x4b, 0x14, 0x2d, 0x00, 0x00])
 
-        The drone outputs video data proportionally to how frequently
-        it receives START_STREAM — more pumping = faster video.
+    def _send_keepalive_124(self) -> None:
+        """Send 124-byte video keepalive (emulator format, no stick data)."""
+        c1 = self._ka_ctr1.to_bytes(2, "little")
+        c2 = self._ka_ctr2.to_bytes(2, "little")
+        c3 = self._ka_ctr3.to_bytes(2, "little")
+        self._ka_ctr1 = (self._ka_ctr1 + 1) & 0xFFFF
+        self._ka_ctr2 = (self._ka_ctr2 + 1) & 0xFFFF
+        self._ka_ctr3 = (self._ka_ctr3 + 1) & 0xFFFF
+
+        pkt = bytearray()
+        pkt += self._KA_HEADER                         # 12
+        pkt += c1                                      # 2
+        pkt += bytes([0x00, 0x00, 0x08, 0x00, 0x00, 0x00])  # inner len=8
+        pkt += bytes(62)                               # 62 zeros
+        pkt += self._KA_TAIL                           # 6
+        pkt += c2 + RC_COUNTER2_SUFFIX                 # 20
+        pkt += c3 + RC_COUNTER3_SUFFIX                 # 16
+        # total = 12+2+6+62+6+20+16 = 124
+
+        try:
+            self._sock.sendto(bytes(pkt), (self.drone_ip, self.control_port))
+        except OSError:
+            pass
+
+    # Init command from YN Fly emulator — mode negotiation?
+    _INIT_CMD = bytes([
+        0xef, 0x20, 0x19, 0x00, 0x01, 0x67,
+    ]) + b'<i=2^bf_ssid=cmd=2>'
+
+    def _keepalive_loop(self) -> None:
+        """Re-send START_STREAM at 10Hz to drive the video stream.
+
+        The K417 only accepts ef 00 (START_STREAM) on port 8800 for video.
+        Any ef 02 packet (RC, keepalive, ACK) kills the stream.
+        10Hz gives stable ~2fps without ACKs.
         """
+        print("[push-jpeg] Keepalive: START_STREAM at 10Hz (stable baseline)")
         while self._running:
-            time.sleep(KEEPALIVE_INTERVAL)
+            time.sleep(0.1)  # 10Hz
             if self._running:
                 self._send_start_fast()
 
@@ -298,17 +342,19 @@ class PushJpegVideoProtocolAdapter:
                 self._stats_frames = 0
                 self._stats_time = now
 
-            # Log first few packets
+            # Log first few packets with seq_fly for ACK debugging
             if self.packets_rx <= 5:
-                head = data[:40].hex(" ") if data else "(empty)"
-                self._dbg(f"[push-jpeg] RX #{self.packets_rx}: {len(data)} bytes from {addr}  head={head}")
+                head = data[:56].hex(" ") if data else "(empty)"
+                sf = struct.unpack_from("<Q", data, OFF_SEQ_FLY)[0] if len(data) >= 16 else -1
+                self._dbg(f"[push-jpeg] RX #{self.packets_rx}: {len(data)}B from {addr}  "
+                          f"seq_fly={sf}  head={head}")
 
             # Filter: must start with 0x93 0x01 and be at least header-sized
             if len(data) < HEADER_SIZE or data[0:2] != MAGIC:
                 self.packets_rejected += 1
-                if self.packets_rejected <= 3:
-                    head = data[:16].hex(" ") if data else "(empty)"
-                    self._dbg(f"[push-jpeg] Rejected: {len(data)} bytes  head={head}")
+                if self.packets_rejected <= 20:
+                    head = data[:32].hex(" ") if data else "(empty)"
+                    print(f"[push-jpeg] NON-VIDEO RX: {len(data)}B from {addr}  head={head}")
                 continue
 
             # Parse header fields
@@ -334,11 +380,11 @@ class PushJpegVideoProtocolAdapter:
                 self._bitmap_set(frag_id)
                 self._frame_payload_len += len(payload)
 
-            # Frame complete? ACK + emit immediately
+            # Frame complete? Emit + request next immediately
             if self._frag_total > 0 and len(self._fragments) == self._frag_total:
-                self._send_ack()
+                # ACKs disabled: any ef 02 on port 8800 kills K417 video stream
                 self._emit_frame()
-                self._send_start_fast()
+                self._send_start_fast()  # Request next frame
 
         self._dbg(f"[push-jpeg] RX thread stopped, total rx={self.packets_rx}")
 
@@ -448,9 +494,10 @@ class PushJpegVideoProtocolAdapter:
         try:
             self._sock.sendto(pkt, (self.drone_ip, self._ack_port))
             self._acks_sent += 1
-            if self._acks_sent <= 3:
+            if self._acks_sent <= 5:
                 self._dbg(f"[push-jpeg] ACK #{self._acks_sent}: seq={self._seq_fly} "
                           f"frags={len(self._fragments)}/{self._frag_total} "
-                          f"-> {self.drone_ip}:{self._ack_port}")
+                          f"-> {self.drone_ip}:{self._ack_port}  "
+                          f"pkt={pkt[:16].hex(' ')}")
         except OSError:
             pass

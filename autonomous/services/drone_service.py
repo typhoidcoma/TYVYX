@@ -27,6 +27,7 @@ from tyvyx.wifi_uav_controller import WifiUavDroneController
 from tyvyx.services.video_receiver import VideoReceiverService
 from tyvyx.protocols.s2x_video_protocol import S2xVideoProtocolAdapter
 from tyvyx.protocols.push_jpeg_video_protocol import PushJpegVideoProtocolAdapter
+from tyvyx.protocols.k417_protocol_engine import K417ProtocolEngine
 from tyvyx.protocols.raw_udp_sniffer import RawUdpSnifferProtocol
 from tyvyx.protocols.tcp_video_protocol import TcpVideoProtocolAdapter
 from tyvyx.protocols.rtsp_video_protocol import RtspVideoProtocolAdapter
@@ -233,28 +234,29 @@ class DroneService:
             return {"success": False, "message": f"Video error: {e}"}
 
     async def _start_video_wifi_uav(self) -> dict:
-        """Start video using push-based JPEG protocol (K417 / Drone-XXXXXX).
+        """Start video using K417 unified protocol engine.
 
-        The drone pushes JPEG fragments after START_STREAM.
-        Does NOT respond to REQUEST_A/REQUEST_B (pull model).
+        The engine handles both TX (40Hz RC packets with frame ACK counter)
+        and RX (0x93 JPEG fragment reassembly) on a single UDP socket.
         """
-        adapter_cls = PushJpegVideoProtocolAdapter
+        adapter_cls = K417ProtocolEngine
         adapter_args = {
             "drone_ip": self.drone.DRONE_IP,
-            "control_port": self.drone.UDP_PORT,
-            "video_port": self.drone.UDP_PORT,
+            "port": self.drone.UDP_PORT,
             "bind_ip": getattr(self, '_bind_ip', ""),
+            "flight_controller": self.drone.flight_controller,
         }
 
         # Socket sharing callback — called on initial start AND every reconnect.
         # WiFi UAV drones require ALL UDP traffic from a single source port.
-        def on_adapter_created(adapter):
+        def on_adapter_created(engine):
             if not isinstance(self.drone, WifiUavDroneController):
                 return
-            sock = adapter.get_shared_socket()
+            sock = engine.get_shared_socket()
             self.drone.set_shared_socket(sock)
+            self.drone.set_engine(engine)
             self.drone._start_heartbeat()
-            logger.info("[wifi-uav] Shared video socket with controller: %s",
+            logger.info("[k417] Engine socket shared with controller: %s",
                         sock.getsockname())
 
         return self._start_video_pipeline(
@@ -493,8 +495,9 @@ class DroneService:
             return
 
         try:
-            # Stop controller heartbeat BEFORE closing the shared socket
+            # Stop controller heartbeat + clear engine BEFORE closing socket
             if isinstance(self.drone, WifiUavDroneController):
+                self.drone.set_engine(None)
                 self.drone._stop_heartbeat()
 
             # Signal all WS/MJPEG clients to close gracefully

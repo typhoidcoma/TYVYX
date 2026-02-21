@@ -1,8 +1,8 @@
 """WiFi UAV Drone Controller for K417 and similar drones.
 
 Uses the wifi_uav protocol family (BL-UAVSDK / BL608 chipset):
-  - Port 8800: video streaming (MJPEG)
-  - Port 8801: control commands (RC, camera switch)
+  - Port 8800: video streaming AND control commands (RC, camera switch)
+  - Port 8801: does NOT exist on K417 (ICMP unreachable)
   - ~120-byte RC control packets with rolling counters
   - Socket shared with video adapter (single source port required)
 
@@ -28,15 +28,15 @@ class WifiUavFlightController:
     def __init__(self, send_fn):
         self.send_command = send_fn
 
-        # Control values (0-255, center=127)
-        self.throttle = 127
-        self.yaw = 127
-        self.pitch = 127
-        self.roll = 127
+        # Control values (0-255, center=128/0x80)
+        self.throttle = 128
+        self.yaw = 128
+        self.pitch = 128
+        self.roll = 128
 
         self.MIN_VAL = 40
         self.MAX_VAL = 220
-        self.NEUTRAL = 127
+        self.NEUTRAL = 128
         self.STEP = 50
         self.DECEL_STEP = 5
 
@@ -135,6 +135,31 @@ class WifiUavFlightController:
                 self.last_command_time = now
             time.sleep(0.005)
 
+    def get_rc_state(self):
+        """Return current (roll, pitch, throttle, yaw, flags) for the engine.
+
+        flags: 0x40=normal, 0x01=takeoff, 0x02=land, 0x04=calibrate.
+        One-shot flags are cleared after being read.
+        """
+        flags = 0x40  # normal
+        if self._takeoff_flag:
+            flags = 0x01
+            self._takeoff_flag = False
+        elif self._land_flag:
+            flags = 0x02
+            self._land_flag = False
+        elif self._calibrate_flag:
+            flags = 0x04
+            self._calibrate_flag = False
+
+        return (
+            int(self.roll) & 0xFF,
+            int(self.pitch) & 0xFF,
+            int(self.throttle) & 0xFF,
+            int(self.yaw) & 0xFF,
+            flags,
+        )
+
     def _send_rc_packet(self):
         """Build and send a wifi_uav RC control packet (~120 bytes)."""
         # Determine command flag
@@ -183,10 +208,10 @@ class WifiUavFlightController:
 
     def get_status_text(self) -> List[str]:
         lines = [
-            f"Throttle: {self.throttle:3d} ({((self.throttle-127)/127*100):+.0f}%)",
-            f"Yaw:      {self.yaw:3d} ({((self.yaw-127)/127*100):+.0f}%)",
-            f"Pitch:    {self.pitch:3d} ({((self.pitch-127)/127*100):+.0f}%)",
-            f"Roll:     {self.roll:3d} ({((self.roll-127)/127*100):+.0f}%)",
+            f"Throttle: {self.throttle:3d} ({((self.throttle-128)/128*100):+.0f}%)",
+            f"Yaw:      {self.yaw:3d} ({((self.yaw-128)/128*100):+.0f}%)",
+            f"Pitch:    {self.pitch:3d} ({((self.pitch-128)/128*100):+.0f}%)",
+            f"Roll:     {self.roll:3d} ({((self.roll-128)/128*100):+.0f}%)",
         ]
         if self._headless_mode:
             lines.append("HEADLESS MODE: ON")
@@ -206,12 +231,12 @@ class WifiUavDroneController:
 
     DRONE_IP = "192.168.169.1"
     UDP_PORT = 8800          # video stream port (used by video adapter)
-    CONTROL_PORT = 8801      # control commands port (RC, heartbeat, camera)
+    CONTROL_PORT = 8800      # all traffic to 8800 (emulator-verified)
 
     def __init__(self, drone_ip: str = "192.168.169.1", bind_ip: str = ""):
         self.DRONE_IP = drone_ip
         self.UDP_PORT = 8800
-        self.CONTROL_PORT = 8801
+        self.CONTROL_PORT = 8800
         self.bind_ip = bind_ip
 
         self.udp_socket: Optional[socket.socket] = None
@@ -227,6 +252,9 @@ class WifiUavDroneController:
         # Heartbeat: low-rate neutral RC packets to keep drone alive
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._heartbeat_running = False
+
+        # K417 protocol engine (set when video starts)
+        self._engine = None  # type: Optional[object]
 
         self.flight_controller = WifiUavFlightController(self._send_rc_raw)
 
@@ -274,8 +302,13 @@ class WifiUavDroneController:
                 pass
         self.udp_socket = sock
 
+    def set_engine(self, engine) -> None:
+        """Register the K417 protocol engine (handles all TX when active)."""
+        self._engine = engine
+
     def disconnect(self):
         print("[wifi-uav] Disconnecting...")
+        self._engine = None
         self._stop_heartbeat()
         if self.flight_controller.is_active:
             self.flight_controller.stop()
@@ -289,9 +322,10 @@ class WifiUavDroneController:
             self.udp_socket = None
 
     def _start_heartbeat(self):
-        """Start low-rate heartbeat: neutral RC packets at ~2 Hz."""
+        """Start alternating RC + keepalive heartbeat at ~40Hz."""
         if self._heartbeat_running:
             return
+        # Init commands deferred to heartbeat loop (after delay)
         self._heartbeat_running = True
         self._heartbeat_thread = threading.Thread(
             target=self._heartbeat_loop, daemon=True, name="WifiUavHeartbeat"
@@ -305,22 +339,33 @@ class WifiUavDroneController:
             self._heartbeat_thread = None
 
     def _heartbeat_loop(self):
-        """Send neutral RC packets at 2 Hz when the FC is not active."""
+        """Heartbeat loop — idle when K417 engine is active.
+
+        When the K417ProtocolEngine is running, it handles all TX (RC + ACK)
+        at 40Hz.  The heartbeat just monitors and stays out of the way.
+        """
+        print("[wifi-uav] Heartbeat: idle (engine handles TX)")
         while self._heartbeat_running:
-            # Skip if the flight controller is already sending at 80 Hz
-            if not self.flight_controller.is_active:
-                self._send_rc_raw(
-                    bytes([127, 127, 127, 127, 0x00, 0x02]),  # center sticks, no cmd, no headless
-                    127 ^ 127 ^ 127 ^ 127 ^ 0x00 ^ 0x02,  # XOR checksum
-                )
-            time.sleep(0.5)
+            time.sleep(1.0)
 
     def send_one_shot_rc(self, command_flag: int = 0x00):
         """Send a single RC packet with a command flag (e.g. calibrate=0x04).
 
         Works even when the flight controller is not armed.
+        If engine is active, sends via engine's packet format instead.
         """
-        controls = bytes([127, 127, 127, 127, command_flag & 0xFF, 0x02])
+        if self._engine is not None:
+            # Engine handles all TX — inject the command flag
+            fc = self.flight_controller
+            if command_flag == 0x01:
+                fc._takeoff_flag = True
+            elif command_flag == 0x02:
+                fc._land_flag = True
+            elif command_flag == 0x04:
+                fc._calibrate_flag = True
+            return
+
+        controls = bytes([128, 128, 128, 128, command_flag & 0xFF, 0x02])
         checksum = 0
         for b in controls:
             checksum ^= b
@@ -339,31 +384,91 @@ class WifiUavDroneController:
             print(f"[wifi-uav] Send error: {e}")
             return False
 
+    # 88-byte RC header: carries stick data (byte 8=0x00, inner len=0x14=20).
+    _RC_SHORT_HEADER = bytes([
+        0xef, 0x02, 0x58, 0x00,   # magic + length=88
+        0x02, 0x02, 0x00, 0x01,   # version
+        0x00, 0x00, 0x00, 0x00,   # byte 8 = 0x00
+    ])
+
+    # 124-byte keepalive header: no stick data (byte 8=0x02, inner len=0x08=8).
+    # This is the video keepalive that replaces START_STREAM after initial kick.
+    _KEEPALIVE_HEADER = bytes([
+        0xef, 0x02, 0x7c, 0x00,   # magic + length=124
+        0x02, 0x02, 0x00, 0x01,   # version
+        0x02, 0x00, 0x00, 0x00,   # byte 8 = 0x02
+    ])
+
+    _TAIL_CONSTANT = bytes([0x32, 0x4b, 0x14, 0x2d, 0x00, 0x00])
+
+    # 25-byte init command from YN Fly: ef 20 type, ASCII config string
+    _INIT_CMD = bytes([
+        0xef, 0x20, 0x19, 0x00, 0x01, 0x67,
+    ]) + b'<i=2^bf_ssid=cmd=2>'
+
     def _send_rc_raw(self, controls: bytes, checksum: int) -> None:
-        """Build full wifi_uav RC packet from controls and send it."""
+        """Build 88-byte short RC packet (YN Fly format) and send it."""
+        if not self.udp_socket:
+            return
+
+        c1 = self._ctr1.to_bytes(2, "little")
+        self._ctr1 = (self._ctr1 + 1) & 0xFFFF
+
+        # 88-byte: header(12) + c1(2) + suffix(6) + controls(6) + pad(10)
+        #   + checksum(1) + 0x99(1) + zeros(44) + tail(6) = 88
+        pkt = bytearray()
+        pkt += self._RC_SHORT_HEADER              # 12
+        pkt += c1 + RC_COUNTER1_SUFFIX             # 8
+        pkt += controls                            # 6
+        pkt += RC_CONTROL_SUFFIX                   # 10
+        pkt.append(checksum)                       # 1
+        pkt += b'\x99'                             # 1
+        pkt += bytes(44)                           # 44
+        pkt += self._TAIL_CONSTANT                 # 6
+        # total = 88
+
+        try:
+            self.udp_socket.sendto(bytes(pkt), (self.DRONE_IP, self.CONTROL_PORT))
+        except OSError:
+            pass
+
+    def _send_keepalive(self) -> None:
+        """Build 124-byte video keepalive packet (no stick data, inner len=0x08).
+
+        Emulator format: header(12) + c1(2) + 00 00 08 00 00 00(6) + zeros(62)
+          + tail(6) + c2(2) + COUNTER2_SUFFIX(18) + c3(2) + COUNTER3_SUFFIX(14) = 124
+        """
         if not self.udp_socket:
             return
 
         c1 = self._ctr1.to_bytes(2, "little")
         c2 = self._ctr2.to_bytes(2, "little")
         c3 = self._ctr3.to_bytes(2, "little")
-
         self._ctr1 = (self._ctr1 + 1) & 0xFFFF
         self._ctr2 = (self._ctr2 + 1) & 0xFFFF
         self._ctr3 = (self._ctr3 + 1) & 0xFFFF
 
         pkt = bytearray()
-        pkt += RC_HEADER
-        pkt += c1 + RC_COUNTER1_SUFFIX
-        pkt += controls
-        pkt += RC_CONTROL_SUFFIX
-        pkt.append(checksum)
-        pkt += RC_CHECKSUM_SUFFIX
-        pkt += c2 + RC_COUNTER2_SUFFIX
-        pkt += c3 + RC_COUNTER3_SUFFIX
+        pkt += self._KEEPALIVE_HEADER              # 12
+        pkt += c1                                  # 2
+        pkt += bytes([0x00, 0x00, 0x08, 0x00, 0x00, 0x00])  # inner len=8, no 0x66
+        pkt += bytes(62)                           # 62 zeros (no controls/checksum/marker)
+        pkt += self._TAIL_CONSTANT                 # 6
+        pkt += c2 + RC_COUNTER2_SUFFIX             # 20
+        pkt += c3 + RC_COUNTER3_SUFFIX             # 16
+        # total = 12+2+6+62+6+20+16 = 124
 
         try:
             self.udp_socket.sendto(bytes(pkt), (self.DRONE_IP, self.CONTROL_PORT))
+        except OSError:
+            pass
+
+    def _send_init_cmd(self) -> None:
+        """Send the 25-byte ef 20 init command (from YN Fly startup sequence)."""
+        if not self.udp_socket:
+            return
+        try:
+            self.udp_socket.sendto(self._INIT_CMD, (self.DRONE_IP, self.CONTROL_PORT))
         except OSError:
             pass
 

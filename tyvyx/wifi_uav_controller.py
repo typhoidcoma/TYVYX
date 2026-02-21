@@ -168,11 +168,14 @@ class WifiUavFlightController:
 
     def _send_rc_packet(self):
         """Build and send a wifi_uav RC control packet (~120 bytes)."""
-        # Determine command flag
+        # Determine command flag (20-byte flags_a format)
+        # 0x01 = takeoff/land (shared — drone decides by flight state)
+        # 0x02 = emergency stop (NOT land!)
+        # 0x04 = gyro calibrate
         if self._takeoff_flag:
             command = 0x01
         elif self._land_flag:
-            command = 0x02
+            command = 0x01  # same bit as takeoff — drone decides based on state
         elif self._calibrate_flag:
             command = 0x04
         else:
@@ -292,13 +295,28 @@ class WifiUavDroneController:
             if self.bind_ip:
                 self.udp_socket.bind((self.bind_ip, 0))
 
+        # Verify drone is reachable: send START_STREAM probes, wait for response
+        try:
+            for _ in range(3):
+                self.udp_socket.sendto(
+                    b"\xef\x00\x04\x00", (self.DRONE_IP, self.UDP_PORT))
+                time.sleep(0.05)
+            self.udp_socket.settimeout(1.0)
+            data, addr = self.udp_socket.recvfrom(2048)
+            print(f"[wifi-uav] Drone verified: {len(data)}B from {addr}")
+            self.udp_socket.settimeout(2.0)
+        except (socket.timeout, ConnectionResetError, OSError):
+            print(f"[wifi-uav] No response from {self.DRONE_IP}:{self.UDP_PORT}"
+                  " — drone not reachable")
+            try:
+                self.udp_socket.close()
+            except Exception:
+                pass
+            self.udp_socket = None
+            return False
+
         self.is_connected = True
         self.is_running = True
-
-        # Heartbeat is started by drone_service AFTER video starts and the
-        # video adapter's socket is shared with this controller.  The drone
-        # requires ALL traffic from a single UDP source port.
-
         print("[wifi-uav] Connected (heartbeat deferred until video starts)")
         return True
 

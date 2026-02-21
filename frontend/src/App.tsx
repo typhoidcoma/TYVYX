@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { droneApi, type DroneStatus } from './services/api'
-import { WifiScanner } from './components/WifiScanner'
 import { DroneVideo } from './components/DroneVideo'
 import { FlightControls } from './components/FlightControls'
 
@@ -99,9 +98,7 @@ function App() {
     <div className="min-h-screen bg-base text-heading flex flex-col">
 
       {/* Header */}
-      <header className="relative px-4 py-3 border-b border-border flex items-center gap-4">
-        <img src="/tyvyx_icon.svg" alt="TYVYX icon" className="h-10 w-10 absolute left-1/2 -translate-x-1/2" />
- 
+      <header className="px-4 py-3 border-b border-border flex items-center gap-4">
         <span className={`ml-auto font-mono text-sm ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
           {isConnected ? '● Connected' : '○ Disconnected'}
         </span>
@@ -139,9 +136,6 @@ function App() {
             >
               Disconnect
             </button>
-            <div className="border-l border-border pl-3 flex-1 min-w-0">
-              <WifiScanner onDroneDetected={(ip) => setDroneIp(ip)} />
-            </div>
           </div>
         </div>
 
@@ -247,11 +241,15 @@ function App() {
         )}
       </main>
 
-      <footer className="px-4 pb-6 pt-2 flex justify-center">
-        <img src="/tyvyx_logo_1.svg" alt="TYVYX" className="h-8 md:h-10 w-auto opacity-90" />
+      <footer className="px-10 pb-6 pt-2 flex flex-col items-center gap-32">
+
+        <img src="/tyvyx_logo_1.svg" alt="TYVYX" className="h-8 md:h-10 w-auto opacity-100" />
       </footer>
     </div>
   )
 }
 
 export default App
+
+
+

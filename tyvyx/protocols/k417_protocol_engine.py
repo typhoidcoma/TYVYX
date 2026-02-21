@@ -317,11 +317,21 @@ class K417ProtocolEngine:
         """Read RC state from flight controller, convert to 20-byte format.
 
         Returns (roll, pitch, throttle, yaw, cmd, headless).
+
+        20-byte flags_a mapping (DIFFERENT from 8-byte!):
+          0x01 = takeoff/land (shared — drone decides by flight state)
+          0x02 = emergency stop
+          0x04 = gyro calibrate
         """
         if self._fc is not None and hasattr(self._fc, 'get_rc_state'):
             roll, pitch, throttle, yaw, flags = self._fc.get_rc_state()
-            # Convert 8-byte flags → 20-byte cmd+headless
-            cmd = flags & 0x07   # takeoff=1, land=2, calibrate=4
+            # Convert FC flags → 20-byte flags_a
+            # FC returns: takeoff=0x01, land=0x02, calibrate=0x04
+            # Land must map to 0x01 (same bit as takeoff); 0x02 = e-stop!
+            if flags == 0x02:
+                cmd = 0x01  # land → takeoff/land bit
+            else:
+                cmd = flags & 0x07
             return (roll, pitch, throttle, yaw, cmd, 2)
         return (128, 128, 128, 128, 0, 2)
 

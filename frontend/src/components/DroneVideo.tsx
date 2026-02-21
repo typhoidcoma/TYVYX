@@ -5,7 +5,6 @@ type Transport = 'connecting' | 'websocket' | 'mjpeg'
 
 interface Props {
   streaming: boolean
-  testMode?: boolean
   className?: string
 }
 
@@ -18,7 +17,7 @@ interface DebugStats {
 const MAX_WS_RETRIES = 3
 const WS_RETRY_DELAY = 2000 // ms between reconnect attempts
 
-export function DroneVideo({ streaming, testMode = false, className = '' }: Props) {
+export function DroneVideo({ streaming, className = '' }: Props) {
   const imgRef = useRef<HTMLImageElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const prevUrlRef = useRef<string | null>(null)
@@ -65,10 +64,8 @@ export function DroneVideo({ streaming, testMode = false, className = '' }: Prop
     cleanup()
     setTransport('connecting')
 
-    // Test mode uses /api/video/test, live mode uses /api/video/ws
-    const wsPath = testMode ? '/api/video/test' : '/api/video/ws'
-    console.log(`[DroneVideo] Connecting WebSocket to ${wsPath} (attempt ${wsRetries.current + 1})...`)
-    const ws = new WebSocket(`${WS_BASE_URL}${wsPath}`)
+    console.log(`[DroneVideo] Connecting WebSocket to /api/video/ws (attempt ${wsRetries.current + 1})...`)
+    const ws = new WebSocket(`${WS_BASE_URL}/api/video/ws`)
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
@@ -85,7 +82,7 @@ export function DroneVideo({ streaming, testMode = false, className = '' }: Prop
     ws.onopen = () => {
       console.log('[DroneVideo] WebSocket connected')
       setTransport('websocket')
-      wsRetries.current = 0 // reset retry count on successful connection
+      wsRetries.current = 0
     }
 
     ws.onmessage = (e) => {
@@ -113,7 +110,6 @@ export function DroneVideo({ streaming, testMode = false, className = '' }: Prop
       console.warn(`[DroneVideo] WebSocket closed: code=${e.code} reason=${e.reason}`)
       wsRef.current = null
 
-      // Retry WS before falling back to MJPEG
       wsRetries.current++
       if (wsRetries.current <= MAX_WS_RETRIES) {
         console.log(`[DroneVideo] Reconnecting WS in ${WS_RETRY_DELAY}ms (retry ${wsRetries.current}/${MAX_WS_RETRIES})...`)
@@ -127,13 +123,12 @@ export function DroneVideo({ streaming, testMode = false, className = '' }: Prop
     }
 
     ws.onerror = () => {
-      // onclose will fire after onerror, let it handle retry logic
       console.error('[DroneVideo] WebSocket error')
     }
-  }, [cleanup, fallbackToMjpeg, testMode])
+  }, [cleanup, fallbackToMjpeg])
 
   useEffect(() => {
-    if (streaming || testMode) {
+    if (streaming) {
       wsRetries.current = 0
       fpsCounter.current = 0
       totalCount.current = 0
@@ -145,14 +140,9 @@ export function DroneVideo({ streaming, testMode = false, className = '' }: Prop
       setTransport('connecting')
     }
     return cleanup
-  }, [streaming, testMode, connectWs, cleanup])
+  }, [streaming, connectWs, cleanup])
 
-  if (!streaming && !testMode) return null
-
-  // Choose MJPEG URL based on mode
-  const mjpegUrl = testMode
-    ? `${API_BASE_URL}/api/video/test`
-    : `${API_BASE_URL}/api/video/feed`
+  if (!streaming) return null
 
   return (
     <div className={`relative ${className}`}>
@@ -168,7 +158,7 @@ export function DroneVideo({ streaming, testMode = false, className = '' }: Prop
       {/* MJPEG fallback: browser-native multipart streaming */}
       {transport === 'mjpeg' && (
         <img
-          src={mjpegUrl}
+          src={`${API_BASE_URL}/api/video/feed`}
           alt="Drone video feed"
           className="w-full h-full object-contain"
         />
@@ -192,7 +182,6 @@ export function DroneVideo({ streaming, testMode = false, className = '' }: Prop
       <span className="absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-mono bg-black/60">
         {transport === 'websocket' && <span className="text-green-400">WS</span>}
         {transport === 'mjpeg' && <span className="text-orange-400">MJPEG</span>}
-        {testMode && <span className="text-yellow-400 ml-1">TEST</span>}
       </span>
     </div>
   )

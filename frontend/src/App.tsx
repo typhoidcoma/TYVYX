@@ -1,43 +1,30 @@
 import { useState, useEffect } from 'react'
-import { droneApi, type DroneStatus, createWebSocket } from './services/api'
-import { usePositionStore } from './stores/positionStore'
-import { PositionMap } from './components/PositionMap'
-import { PositionIndicator } from './components/PositionIndicator'
-import { TrajectoryControls } from './components/TrajectoryControls'
+import { droneApi, type DroneStatus } from './services/api'
 import { WifiScanner } from './components/WifiScanner'
 import { DroneVideo } from './components/DroneVideo'
 import { FlightControls } from './components/FlightControls'
 
 function App() {
+  const [droneIp, setDroneIp] = useState('192.168.169.1')
   const [status, setStatus] = useState<DroneStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
-  const [testVideo, setTestVideo] = useState(false)
   const [flightArmed, setFlightArmed] = useState(false)
-  const { updatePosition } = usePositionStore()
+  const [rawHex, setRawHex] = useState('')
 
-  // Poll drone status every 2 s
+  // Poll drone status every 2s
   useEffect(() => {
     const poll = async () => {
       try {
         setStatus(await droneApi.getStatus())
       } catch {
-        // backend unreachable — leave last status
+        // backend unreachable
       }
     }
     const id = setInterval(poll, 2000)
     poll()
     return () => clearInterval(id)
   }, [])
-
-  // WebSocket telemetry when connected
-  useEffect(() => {
-    if (!status?.connected) return
-    const ws = createWebSocket((data) => {
-      if (data?.data?.position) updatePosition(data.data.position)
-    })
-    return () => ws.close()
-  }, [status?.connected, updatePosition])
 
   const withLoading = async (fn: () => Promise<{ message?: string } | void>) => {
     setLoading(true)
@@ -52,8 +39,7 @@ function App() {
   }
 
   const handleConnect = () => withLoading(async () => {
-    const r = await droneApi.connect()
-    return r
+    return await droneApi.connect(droneIp)
   })
 
   const handleDisconnect = () => withLoading(async () => {
@@ -71,173 +57,168 @@ function App() {
 
   const handleSwitchCamera = (cam: number) => withLoading(() => droneApi.switchCamera(cam))
 
+  const handleHeadless = () => withLoading(() => droneApi.headless())
+
+  const handleSendRaw = () => {
+    const hex = rawHex.replace(/\s/g, '')
+    if (!hex) return
+    withLoading(() => droneApi.sendRaw(hex))
+  }
+
   const isStreaming = !!status?.video_streaming
+  const isConnected = !!status?.connected
 
   return (
-    <div className="min-h-screen bg-base text-heading p-6">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-base text-heading">
 
-        {/* Header */}
-        <header className="mb-6 flex items-center gap-5">
-          <img src="/tyvyx_logo_1.svg" alt="TYVYX" className="h-14 w-auto" />
-          <div>
-            <h1 className="text-3xl font-bold">Drone Control</h1>
-            <p className="text-muted text-sm">Phase 3: Position Tracking</p>
-          </div>
-        </header>
+      {/* Header */}
+      <header className="px-4 py-3 border-b border-border flex items-center gap-4">
+        <img src="/tyvyx_logo_1.svg" alt="TYVYX" className="h-10 w-auto" />
+        <h1 className="text-xl font-bold">Drone Controller</h1>
+        <span className={`ml-auto font-mono text-sm ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
+          {isConnected ? '● Connected' : '○ Disconnected'}
+        </span>
+        {isStreaming && (
+          <span className="font-mono text-sm text-green-400">● Video</span>
+        )}
+      </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <main className="max-w-5xl mx-auto px-4 py-4 space-y-4">
 
-          {/* ── Video Feed ─────────────────────────────────────────── */}
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-              <h2 className="font-semibold text-heading">Video Feed</h2>
-              <div className="flex items-center gap-2 text-sm">
-                <span className={`font-mono ${status?.connected ? 'text-green-400' : 'text-red-400'}`}>
-                  {status?.connected ? '● Connected' : '○ Disconnected'}
-                </span>
-                <span className="text-border">|</span>
-                <span className={`font-mono ${isStreaming ? 'text-green-400' : 'text-dim'}`}>
-                  {isStreaming ? '● Streaming' : '○ No feed'}
-                </span>
-              </div>
-            </div>
-
-            <div className="bg-black aspect-video flex items-center justify-center relative">
-              {(isStreaming || testVideo) ? (
-                <DroneVideo streaming={isStreaming} testMode={testVideo} className="w-full h-full" />
-              ) : (
-                <div className="text-dim text-center select-none">
-                  <div className="text-5xl mb-3 opacity-30">⬛</div>
-                  <p className="text-sm">
-                    {!status?.connected
-                      ? 'Connect to drone to enable video'
-                      : 'Click Start Video in controls'}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* ── Controls ───────────────────────────────────────────── */}
-          <div className="bg-card border border-border rounded-lg p-5 space-y-5">
-            <h2 className="font-semibold text-heading">Controls</h2>
-
-            {/* WiFi status */}
-            <section>
-              <p className="text-xs text-dim uppercase tracking-wide mb-2">WiFi</p>
-              <WifiScanner />
-            </section>
-
-            {/* Connection */}
-            <section>
-              <p className="text-xs text-dim uppercase tracking-wide mb-2">Connection</p>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleConnect}
-                  disabled={loading || !!status?.connected}
-                  className="flex-1 px-4 py-2 rounded font-medium text-sm transition-colors
-                    bg-green-700 hover:bg-green-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
-                >
-                  Connect
-                </button>
-                <button
-                  onClick={handleDisconnect}
-                  disabled={loading || !status?.connected}
-                  className="flex-1 px-4 py-2 rounded font-medium text-sm transition-colors
-                    bg-red-700 hover:bg-red-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
-                >
-                  Disconnect
-                </button>
-              </div>
-            </section>
-
-            {/* Video */}
-            <section>
-              <p className="text-xs text-dim uppercase tracking-wide mb-2">Video</p>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleVideoToggle}
-                  disabled={loading || !status?.connected}
-                  className={`flex-1 px-4 py-2 rounded font-medium text-sm transition-colors
-                    disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed ${
-                    isStreaming
-                      ? 'bg-orange-700 hover:bg-orange-600'
-                      : 'bg-blue-700 hover:bg-blue-600'
-                  }`}
-                >
-                  {isStreaming ? 'Stop Video' : 'Start Video'}
-                </button>
-                <button
-                  onClick={() => setTestVideo(v => !v)}
-                  className={`px-4 py-2 rounded font-medium text-sm transition-colors ${
-                    testVideo
-                      ? 'bg-yellow-700 hover:bg-yellow-600'
-                      : 'bg-panel hover:bg-border text-dim'
-                  }`}
-                >
-                  {testVideo ? 'Stop Test' : 'Test'}
-                </button>
-              </div>
-            </section>
-
-            {/* Camera */}
-            <section>
-              <p className="text-xs text-dim uppercase tracking-wide mb-2">Camera</p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleSwitchCamera(1)}
-                  disabled={loading || !status?.connected}
-                  className="flex-1 px-4 py-2 rounded font-medium text-sm transition-colors
-                    bg-purple-700 hover:bg-purple-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
-                >
-                  Cam 1
-                </button>
-                <button
-                  onClick={() => handleSwitchCamera(2)}
-                  disabled={loading || !status?.connected}
-                  className="flex-1 px-4 py-2 rounded font-medium text-sm transition-colors
-                    bg-purple-700 hover:bg-purple-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
-                >
-                  Cam 2
-                </button>
-              </div>
-            </section>
-
-            {/* Flight */}
-            <FlightControls
-              connected={!!status?.connected}
-              armed={flightArmed}
-              onArmedChange={setFlightArmed}
+        {/* Connection Bar */}
+        <div className="bg-card border border-border rounded-lg p-3">
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-dim uppercase tracking-wide shrink-0">Drone IP</label>
+            <input
+              type="text"
+              value={droneIp}
+              onChange={(e) => setDroneIp(e.target.value)}
+              className="flex-1 max-w-[200px] px-3 py-1.5 rounded bg-panel border border-border text-heading text-sm font-mono focus:outline-none focus:border-accent"
+              placeholder="192.168.169.1"
             />
+            <button
+              onClick={handleConnect}
+              disabled={loading || isConnected}
+              className="px-4 py-1.5 rounded font-medium text-sm transition-colors
+                bg-green-700 hover:bg-green-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
+            >
+              Connect
+            </button>
+            <button
+              onClick={handleDisconnect}
+              disabled={loading || !isConnected}
+              className="px-4 py-1.5 rounded font-medium text-sm transition-colors
+                bg-red-700 hover:bg-red-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
+            >
+              Disconnect
+            </button>
+            <div className="border-l border-border pl-3 flex-1 min-w-0">
+              <WifiScanner onDroneDetected={(ip) => setDroneIp(ip)} />
+            </div>
+          </div>
+        </div>
 
-            {/* Status message */}
-            {message && (
-              <div className="px-3 py-2 rounded bg-panel border border-border text-sm text-muted">
-                {message}
+        {/* Video Feed */}
+        <div className="bg-card border border-border rounded-lg overflow-hidden">
+          <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+            <span className="font-semibold text-heading text-sm">Video Feed</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleVideoToggle}
+                disabled={loading || !isConnected}
+                className={`px-3 py-1 rounded font-medium text-xs transition-colors
+                  disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed ${
+                  isStreaming
+                    ? 'bg-orange-700 hover:bg-orange-600'
+                    : 'bg-blue-700 hover:bg-blue-600'
+                }`}
+              >
+                {isStreaming ? 'Stop Video' : 'Start Video'}
+              </button>
+              <button
+                onClick={() => handleSwitchCamera(1)}
+                disabled={loading || !isConnected}
+                className="px-3 py-1 rounded font-medium text-xs transition-colors
+                  bg-purple-700 hover:bg-purple-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
+              >
+                Cam 1
+              </button>
+              <button
+                onClick={() => handleSwitchCamera(2)}
+                disabled={loading || !isConnected}
+                className="px-3 py-1 rounded font-medium text-xs transition-colors
+                  bg-purple-700 hover:bg-purple-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
+              >
+                Cam 2
+              </button>
+            </div>
+          </div>
+          <div className="aspect-video bg-black flex items-center justify-center">
+            {isStreaming ? (
+              <DroneVideo streaming={true} className="w-full h-full" />
+            ) : (
+              <div className="text-dim text-center select-none">
+                <div className="text-5xl mb-3 opacity-30">&#x2B1B;</div>
+                <p className="text-sm">
+                  {!isConnected
+                    ? 'Connect to drone to enable video'
+                    : 'Click Start Video above'}
+                </p>
               </div>
             )}
           </div>
         </div>
 
-        {/* Position Tracking */}
-        <div className="mt-8">
-          <h2 className="text-2xl font-bold mb-5 text-heading">Position Tracking</h2>
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            <div className="xl:col-span-2">
-              <PositionMap width={800} height={600} />
-            </div>
-            <div className="space-y-6">
-              <PositionIndicator />
-              <TrajectoryControls />
-            </div>
+        {/* Flight Controls */}
+        <div className="bg-card border border-border rounded-lg p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="font-semibold text-heading text-sm">Flight Controls</span>
+            <button
+              onClick={handleHeadless}
+              disabled={loading || !isConnected}
+              className="px-3 py-1 rounded font-medium text-xs transition-colors
+                bg-indigo-700 hover:bg-indigo-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
+            >
+              Headless
+            </button>
+          </div>
+          <FlightControls
+            connected={isConnected}
+            armed={flightArmed}
+            onArmedChange={setFlightArmed}
+          />
+        </div>
+
+        {/* Raw Command */}
+        <div className="bg-card border border-border rounded-lg p-3">
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-dim uppercase tracking-wide shrink-0">Raw Hex</label>
+            <input
+              type="text"
+              value={rawHex}
+              onChange={(e) => setRawHex(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSendRaw() }}
+              className="flex-1 px-3 py-1.5 rounded bg-panel border border-border text-heading text-sm font-mono focus:outline-none focus:border-accent"
+              placeholder="ef 00 04 00"
+            />
+            <button
+              onClick={handleSendRaw}
+              disabled={loading || !isConnected || !rawHex.replace(/\s/g, '')}
+              className="px-4 py-1.5 rounded font-medium text-sm transition-colors
+                bg-gray-600 hover:bg-gray-500 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
+            >
+              Send
+            </button>
           </div>
         </div>
 
-        <footer className="mt-8 text-center text-dim text-xs">
-          Phase 3: Optical Flow + Kalman Filter &nbsp;·&nbsp; Next: Phase 4 SLAM
-        </footer>
-      </div>
+        {/* Status Message */}
+        {message && (
+          <div className="px-3 py-2 rounded bg-panel border border-border text-sm text-muted">
+            {message}
+          </div>
+        )}
+      </main>
     </div>
   )
 }

@@ -8,7 +8,11 @@
 import React, { useState } from 'react';
 import { networkApi, type ScanResult } from '../services/api';
 
-export const WifiScanner: React.FC = () => {
+interface Props {
+  onDroneDetected?: (ip: string) => void;
+}
+
+export const WifiScanner: React.FC<Props> = ({ onDroneDetected }) => {
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState('');
@@ -19,6 +23,9 @@ export const WifiScanner: React.FC = () => {
     try {
       const r = await networkApi.scan();
       setResult(r);
+      if (r.connected_to_drone && r.drone_ip && onDroneDetected) {
+        onDroneDetected(r.drone_ip);
+      }
     } catch {
       setError('Scan failed');
     } finally {
@@ -28,7 +35,7 @@ export const WifiScanner: React.FC = () => {
 
   let pill = 'border-border bg-panel text-dim';
   let dot = '○';
-  let label = 'Not scanned — click Scan WiFi';
+  let label = 'Not scanned';
 
   if (error) {
     pill = 'border-red-700 bg-red-900/20 text-red-300';
@@ -39,16 +46,16 @@ export const WifiScanner: React.FC = () => {
       pill = 'border-green-700 bg-green-900/20 text-green-300';
       dot = '●';
       label = result.drone_ip
-        ? `Drone WiFi: ${result.current_ssid} → ${result.drone_ip}`
-        : `Drone WiFi: ${result.current_ssid}`;
+        ? `${result.current_ssid} → ${result.drone_ip}`
+        : `${result.current_ssid}`;
     } else if (result.current_ssid) {
       pill = 'border-orange-700 bg-orange-900/15 text-orange-300';
       dot = '◐';
-      label = `WiFi: ${result.current_ssid} — not a drone network`;
+      label = `${result.current_ssid} — not drone`;
     } else {
       pill = 'border-border bg-panel text-dim';
       dot = '○';
-      label = 'No WiFi connection detected';
+      label = 'No WiFi detected';
     }
   }
 
@@ -67,7 +74,7 @@ export const WifiScanner: React.FC = () => {
             : 'bg-blue-600 text-white hover:bg-blue-500'
         }`}
       >
-        {scanning ? '…' : 'Scan WiFi'}
+        {scanning ? '…' : 'Scan'}
       </button>
     </div>
   );

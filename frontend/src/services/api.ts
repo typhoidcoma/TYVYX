@@ -3,7 +3,6 @@
  */
 
 import axios from 'axios';
-import type { PositionState } from '../types/position';
 
 export const API_PORT = import.meta.env.VITE_API_PORT || '8000';
 export const API_BASE_URL = `http://localhost:${API_PORT}`;
@@ -23,7 +22,6 @@ export interface DroneStatus {
   timestamp: number;
   bind_ip?: string | null;
   drone_protocol?: string | null;
-  position?: PositionState;  // Phase 3: Present when position tracking is enabled
 }
 
 export interface CommandRequest {
@@ -86,6 +84,11 @@ export const droneApi = {
   setAxes: async (axes: { throttle?: number; yaw?: number; pitch?: number; roll?: number }) => {
     return droneApi.sendCommand({ action: 'axes', params: axes });
   },
+
+  // Send raw hex bytes to drone (for experimentation)
+  sendRaw: async (hex: string) => {
+    return droneApi.sendCommand({ action: 'raw', params: { data: hex } });
+  },
 };
 
 // Network / WiFi Scanner APIs
@@ -126,30 +129,6 @@ export const videoApi = {
     const response = await api.get('/api/video/capabilities');
     return response.data;
   },
-};
-
-// WebSocket connection for telemetry
-export const createWebSocket = (onMessage: (data: any) => void): WebSocket => {
-  const ws = new WebSocket(`${WS_BASE_URL}/ws/telemetry`);
-
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      onMessage(data);
-    } catch (error) {
-      console.error('Error parsing WebSocket message:', error);
-    }
-  };
-
-  ws.onerror = (error) => {
-    console.error('WebSocket error:', error);
-  };
-
-  ws.onclose = () => {
-    console.log('WebSocket closed');
-  };
-
-  return ws;
 };
 
 export default api;

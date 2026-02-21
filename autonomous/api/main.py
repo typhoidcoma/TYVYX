@@ -16,7 +16,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from autonomous.api.routes import drone, video, position, network
+from autonomous.api.routes import drone, video, position, network, rc
 from autonomous.api.websocket import websocket_router
 from autonomous.services.drone_service import drone_service
 from autonomous.services.position_service import position_service
@@ -96,6 +96,7 @@ app.include_router(drone.router, prefix="/api/drone", tags=["drone"])
 app.include_router(video.router, prefix="/api/video", tags=["video"])
 app.include_router(position.router, prefix="/api/position", tags=["position"])  # Phase 3
 app.include_router(websocket_router, prefix="/ws", tags=["websocket"])
+app.include_router(rc.router, prefix="/api/rc", tags=["rc"])
 app.include_router(network.router)
 
 

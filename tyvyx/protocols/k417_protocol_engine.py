@@ -7,7 +7,7 @@ keepalives (~1.5fps) by properly advancing the drone's sliding window.
 
   TX:
     - REQUEST_A (88B) + REQUEST_B (124B) pair after each frame (pull-based)
-    - 88B burst RC (20-byte format) per frame (~frame-synced)
+    - RC stick values embedded in REQUEST_A/B (no separate RC burst)
     - Warmup: START_STREAM + REQUEST(0) every 200ms until first frame
 
   RX:
@@ -32,7 +32,7 @@ from typing import Dict, Optional
 
 from tyvyx.models.video_frame import VideoFrame
 from tyvyx.utils.wifi_uav_jpeg import generate_jpeg_headers_full, EOI
-from tyvyx.utils.wifi_uav_packets import START_STREAM, REQUEST_A, REQUEST_B
+from tyvyx.utils.wifi_uav_packets import START_STREAM, REQUEST_B
 from tyvyx.utils.k417_packets import build_rc_88b
 
 
@@ -231,23 +231,42 @@ class K417ProtocolEngine:
         # type: (int) -> None
         """Send REQUEST_A + REQUEST_B pair to ACK frame and pull next.
 
-        The pair is byte-identical to turbodrone's implementation.
-        frame_id is patched at bytes [12:13] (REQUEST_A) and
-        [12:13], [88:89], [107:108] (REQUEST_B).
+        RC stick values are embedded directly in both packets (matching
+        turbodrone's approach).  This avoids conflicting center-then-deflect
+        messages that occur when using a separate RC burst.
+
+        frame_id patched at [12:13] (A) and [12:13],[88:89],[107:108] (B).
         """
         lo = frame_id & 0xFF
         hi = (frame_id >> 8) & 0xFF
 
-        rqst_a = bytearray(REQUEST_A)
-        rqst_a[12] = lo
-        rqst_a[13] = hi
+        # Read current stick state from flight controller
+        roll, pitch, throttle, yaw, cmd, headless = self._get_fc_state()
 
+        # REQUEST_A: use build_rc_88b (structurally identical, with real sticks)
+        rqst_a = build_rc_88b(
+            frame_id, roll, pitch, throttle, yaw, cmd, headless,
+        )
+
+        # REQUEST_B: patch frame_id + embed sticks
         rqst_b = bytearray(REQUEST_B)
         for base in (12, 88, 107):
             rqst_b[base] = lo
             rqst_b[base + 1] = hi
+        # Patch RC sub-packet: sticks at [20:24], cmd/headless at [24:26]
+        rqst_b[20] = roll & 0xFF
+        rqst_b[21] = pitch & 0xFF
+        rqst_b[22] = throttle & 0xFF
+        rqst_b[23] = yaw & 0xFF
+        rqst_b[24] = cmd & 0xFF
+        rqst_b[25] = headless & 0xFF
+        # Recompute XOR checksum over [20:36]
+        xor = 0
+        for i in range(20, 36):
+            xor ^= rqst_b[i]
+        rqst_b[36] = xor
 
-        self._send(bytes(rqst_a))
+        self._send(rqst_a)
         self._send(bytes(rqst_b))
         self._last_req_time = time.time()
         self._dbg(f"[k417] REQ fid={frame_id}")
@@ -291,16 +310,7 @@ class K417ProtocolEngine:
                 self._send_frame_request(self._frame_id or 0)
                 self._dbg("[k417] Watchdog drop + re-request")
 
-    # ── RC burst (frame-synced) ──
-
-    def _send_rc_burst(self):
-        # type: () -> None
-        """Send one 88B RC packet with 20-byte format, synced to frame."""
-        roll, pitch, throttle, yaw, cmd, headless = self._get_fc_state()
-        pkt = build_rc_88b(
-            self._frame_id, roll, pitch, throttle, yaw, cmd, headless,
-        )
-        self._send(pkt)
+    # ── FC state reader ──
 
     def _get_fc_state(self):
         # type: () -> tuple
@@ -430,11 +440,8 @@ class K417ProtocolEngine:
 
         self._fragments.clear()
 
-        # Pull next frame: send REQUEST_A + REQUEST_B pair
+        # Pull next frame: send REQUEST_A + REQUEST_B pair (sticks embedded)
         self._send_frame_request(self._frame_id)
-
-        # Burst RC: one 88B per frame (frame-synced, won't kill video)
-        self._send_rc_burst()
 
         # Stop warmup after first frame
         if self._warmup:

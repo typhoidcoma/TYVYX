@@ -69,11 +69,11 @@ function App() {
   const isConnected = !!status?.connected
 
   return (
-    <div className="min-h-screen bg-base text-heading">
+    <div className="min-h-screen bg-base text-heading flex flex-col">
 
       {/* Header */}
       <header className="px-4 py-3 border-b border-border flex items-center gap-4">
-        <img src="/tyvyx_logo_1.svg" alt="TYVYX" className="h-10 w-auto" />
+        <img src="/tyvyx_icon.svg" alt="TYVYX icon" className="h-24 w-24" />
         <h1 className="text-xl font-bold">Drone Controller</h1>
         <span className={`ml-auto font-mono text-sm ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
           {isConnected ? '● Connected' : '○ Disconnected'}
@@ -83,7 +83,7 @@ function App() {
         )}
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-4 space-y-4">
+      <main className="max-w-5xl w-full mx-auto px-4 py-4 space-y-4 flex-1">
 
         {/* Connection Bar */}
         <div className="bg-card border border-border rounded-lg p-3">
@@ -219,6 +219,10 @@ function App() {
           </div>
         )}
       </main>
+
+      <footer className="px-4 pb-6 pt-2 flex justify-center">
+        <img src="/tyvyx_logo_1.svg" alt="TYVYX" className="h-8 md:h-10 w-auto opacity-90" />
+      </footer>
     </div>
   )
 }

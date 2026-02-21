@@ -49,6 +49,9 @@ class WifiUavFlightController:
         # External axis control (suppresses auto-decel for 200ms after set_axes)
         self._last_axes_set = 0.0
 
+        # When True, engine handles all TX — control loop only runs auto-decel
+        self.engine_active = False
+
         self.control_thread = None
         self.is_active = False
         self.last_command_time = 0
@@ -131,7 +134,10 @@ class WifiUavFlightController:
         while self.is_active:
             now = time.time()
             if now - self.last_command_time >= self.command_interval:
-                self._send_rc_packet()
+                if self.engine_active:
+                    self._auto_decel()      # State only, no packets (engine handles TX)
+                else:
+                    self._send_rc_packet()  # Full send + auto-decel
                 self.last_command_time = now
             time.sleep(0.005)
 
@@ -197,7 +203,10 @@ class WifiUavFlightController:
         self._land_flag = False
         self._calibrate_flag = False
 
-        # Auto-decel (suppressed for 200ms after set_axes)
+        self._auto_decel()
+
+    def _auto_decel(self):
+        """Decay stick values toward neutral when no recent set_axes() call."""
         if self.DECEL_STEP > 0 and (time.time() - self._last_axes_set) > 0.2:
             for attr in ('roll', 'pitch', 'throttle', 'yaw'):
                 val = getattr(self, attr)
@@ -305,6 +314,7 @@ class WifiUavDroneController:
     def set_engine(self, engine) -> None:
         """Register the K417 protocol engine (handles all TX when active)."""
         self._engine = engine
+        self.flight_controller.engine_active = (engine is not None)
 
     def disconnect(self):
         print("[wifi-uav] Disconnecting...")

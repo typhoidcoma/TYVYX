@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { droneApi } from '../services/api'
+import { droneApi, WS_BASE_URL } from '../services/api'
 
 interface FlightControlsProps {
   connected: boolean
@@ -9,7 +9,7 @@ interface FlightControlsProps {
 
 const NEUTRAL = 127
 const STICK_VALUE = 200  // axis value when key held (max deflection)
-const SEND_INTERVAL = 80 // ms between axis updates (~12 Hz)
+const SEND_INTERVAL = 30 // ms between periodic axis updates (~33 Hz)
 
 // Key-to-axis mapping
 const KEY_AXES: Record<string, { axis: string; value: number }> = {
@@ -27,6 +27,7 @@ export function FlightControls({ connected, armed, onArmedChange }: FlightContro
   const [loading, setLoading] = useState(false)
   const heldKeys = useRef<Set<string>>(new Set())
   const sendTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const rcWsRef = useRef<WebSocket | null>(null)
 
   const handleArm = async () => {
     setLoading(true)
@@ -59,28 +60,87 @@ export function FlightControls({ connected, armed, onArmedChange }: FlightContro
     try { await droneApi.calibrate() } catch (error) { console.error(String(error)) }
   }
 
-  // Compute axes from held keys and send to drone
-  const sendAxes = useCallback(() => {
+  // Build axes from currently held keys
+  const buildAxes = useCallback(() => {
     const axes: Record<string, number> = {
       throttle: NEUTRAL,
       yaw: NEUTRAL,
       pitch: NEUTRAL,
       roll: NEUTRAL,
     }
-
-    let hasInput = false
     heldKeys.current.forEach(key => {
       const mapping = KEY_AXES[key]
       if (mapping) {
         axes[mapping.axis] = mapping.value
-        hasInput = true
       }
     })
-
-    if (hasInput) {
-      droneApi.setAxes(axes).catch(() => {})
-    }
+    return axes
   }, [])
+
+  // Send stick state via WebSocket (fast) or HTTP fallback
+  const sendStickState = useCallback(() => {
+    const axes = buildAxes()
+    let hasInput = false
+    if (axes.throttle !== NEUTRAL || axes.yaw !== NEUTRAL ||
+        axes.pitch !== NEUTRAL || axes.roll !== NEUTRAL) {
+      hasInput = true
+    }
+
+    if (!hasInput) return
+
+    // Try WebSocket first (lowest latency)
+    const ws = rcWsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        t: axes.throttle,
+        y: axes.yaw,
+        p: axes.pitch,
+        r: axes.roll,
+      }))
+      return
+    }
+
+    // HTTP fallback
+    droneApi.setAxes(axes).catch(() => {})
+  }, [buildAxes])
+
+  // RC WebSocket lifecycle: open when armed, close when not
+  useEffect(() => {
+    if (!armed || !connected) {
+      if (rcWsRef.current) {
+        rcWsRef.current.onclose = null
+        rcWsRef.current.close()
+        rcWsRef.current = null
+      }
+      return
+    }
+
+    const ws = new WebSocket(`${WS_BASE_URL}/api/rc/ws`)
+    rcWsRef.current = ws
+
+    ws.onopen = () => {
+      console.log('[RC] WebSocket connected')
+    }
+
+    ws.onclose = () => {
+      console.log('[RC] WebSocket closed')
+      if (rcWsRef.current === ws) {
+        rcWsRef.current = null
+      }
+    }
+
+    ws.onerror = () => {
+      console.warn('[RC] WebSocket error, will use HTTP fallback')
+    }
+
+    return () => {
+      ws.onclose = null
+      ws.close()
+      if (rcWsRef.current === ws) {
+        rcWsRef.current = null
+      }
+    }
+  }, [armed, connected])
 
   // Periodic axis sender while armed
   useEffect(() => {
@@ -92,14 +152,14 @@ export function FlightControls({ connected, armed, onArmedChange }: FlightContro
       return
     }
 
-    sendTimer.current = setInterval(sendAxes, SEND_INTERVAL)
+    sendTimer.current = setInterval(sendStickState, SEND_INTERVAL)
     return () => {
       if (sendTimer.current) {
         clearInterval(sendTimer.current)
         sendTimer.current = null
       }
     }
-  }, [armed, sendAxes])
+  }, [armed, sendStickState])
 
   // Keyboard handlers
   useEffect(() => {
@@ -113,7 +173,12 @@ export function FlightControls({ connected, armed, onArmedChange }: FlightContro
 
       if (e.key in KEY_AXES) {
         e.preventDefault()
+        const wasEmpty = heldKeys.current.size === 0
         heldKeys.current.add(e.key)
+        // Immediate send on first key press (don't wait for interval)
+        if (wasEmpty || !e.repeat) {
+          sendStickState()
+        }
       }
 
       // One-shot commands (ignore repeats)
@@ -127,6 +192,8 @@ export function FlightControls({ connected, armed, onArmedChange }: FlightContro
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.key in KEY_AXES) {
         heldKeys.current.delete(e.key)
+        // Immediate send on key release (responsive stick centering)
+        sendStickState()
       }
     }
 
@@ -142,7 +209,7 @@ export function FlightControls({ connected, armed, onArmedChange }: FlightContro
       window.removeEventListener('blur', handleBlur)
       heldKeys.current.clear()
     }
-  }, [armed])
+  }, [armed, sendStickState])
 
   // Disarm on disconnect
   useEffect(() => {
@@ -206,6 +273,9 @@ export function FlightControls({ connected, armed, onArmedChange }: FlightContro
             <span>&larr;/&rarr; &mdash; Roll</span>
             <span>Space &mdash; Takeoff</span>
             <span>X &mdash; Land</span>
+          </div>
+          <div className="mt-1 text-[10px] text-dim/60">
+            {rcWsRef.current?.readyState === WebSocket.OPEN ? '● WS RC' : '○ HTTP RC'}
           </div>
         </div>
       )}

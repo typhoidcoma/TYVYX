@@ -4,15 +4,22 @@
 # for the autonomous drone system.
 
 drone:
-  # Network configuration
-  ip: "192.168.1.1"
-  udp_port: 7099
-  rtsp_port: 7070
-  rtsp_url: "rtsp://192.168.1.1:7070/webcam"
+  # Network configuration — K417 (primary development hardware)
+  # K417: 192.168.169.1:8800 (WiFi UAV, BL618 chipset, push-based 0x93 video)
+  # E88Pro: 192.168.1.1:7099 (lxPro/JieLi chipset)
+  ip: "192.168.169.1"
+  udp_port: 8800
+  video_port: 8800  # K417: same port for video + control
 
-  # Device type (auto-detected, but can be overridden)
-  # GL=2, TC=10
-  device_type: null
+  # E88Pro fallback (uncomment to override for lxPro drones)
+  # ip: "192.168.1.1"
+  # udp_port: 7099
+  # video_port: 7070
+  # rtsp_url: "rtsp://192.168.1.1:7070/webcam"
+
+  # Protocol auto-detection: probe_port → SSID → IP subnet
+  # Override: "wifi_uav" or "e88pro"
+  protocol: null
 
 # Flight control calibration
 # These values are populated through testing with flight_control_test.py
@@ -155,12 +162,12 @@ camera:
   p2: 0.0
   k3: 0.0
 
-  # Resolution
+  # Resolution (K417: 640x360 MJPEG)
   width: 640
-  height: 480
+  height: 360
 
-  # Frame rate
-  fps: 30
+  # Frame rate (K417: ~21fps with pull-based protocol)
+  fps: 21
 
 # SLAM configuration
 slam:

@@ -590,7 +590,7 @@ npm run build
 
 ## Additional Resources
 
-- **Getting Started Guide**: [docs/getting-started/README.md](../getting-started/README.md)
+- **Getting Started Guide**: [Main README](../../README.md)
 - **API Reference**: [docs/API_REFERENCE.md](../API_REFERENCE.md)
 - **Contributing Guidelines**: [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Troubleshooting**: [docs/getting-started/TROUBLESHOOTING.md](../getting-started/TROUBLESHOOTING.md)

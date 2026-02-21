@@ -6,7 +6,7 @@ Uses the wifi_uav protocol family (BL-UAVSDK / BL608 chipset):
   - ~120-byte RC control packets with rolling counters
   - Socket shared with video adapter (single source port required)
 
-The socket is created by PushJpegVideoProtocolAdapter and shared here.
+The socket is created by K417ProtocolEngine and shared here.
 """
 
 import socket

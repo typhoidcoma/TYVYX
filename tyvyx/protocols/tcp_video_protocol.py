@@ -5,7 +5,7 @@ instead of UDP.  This adapter connects to TCP 7070, reads JPEG frames
 delimited by SOI (FF D8) / EOI (FF D9), and queues them for the
 standard video pipeline.
 
-Duck-typed adapter — same interface as PushJpegVideoProtocolAdapter:
+Duck-typed adapter — same interface as K417ProtocolEngine:
   start() / stop() / is_running() / get_frame(timeout) / get_packets()
   start_keepalive() / stop_keepalive()  (no-ops)
 

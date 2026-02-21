@@ -6,9 +6,9 @@ Welcome to the TYVYX Drone project documentation. This index provides navigation
 
 New to TYVYX? Start here:
 
-- **[Quick Start Guide](getting-started/README.md)** - First-time setup and installation
 - **[Quick Reference](getting-started/QUICK_REFERENCE.md)** - Command cheat sheet and shortcuts
 - **[Troubleshooting](getting-started/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Main README](../README.md)** - Project overview and quick start
 
 ## Implementation Guides
 
@@ -38,10 +38,12 @@ Want to contribute to TYVYX?
 
 ### Completed Phases
 - ✅ Phase 1: Flight control calibration tools
-- ✅ Phase 2: React + FastAPI web interface
+- ✅ Phase 2: React + FastAPI web interface (21fps live video via K417 protocol engine)
 
 ### In Progress
-- 🚧 Phase 3: Optical flow position estimation (~85% complete — needs camera calibration and real-world validation)
+- 🚧 Phase 3: Optical flow position estimation
+
+> **Note**: Some docs in `guides/` and `technical/` reference earlier architecture (E88Pro-first, Flask app). The protocol-specification.md has been updated with K417 details. Other docs may lag behind.
 
 ### Planned
 - 📋 Phase 4: SLAM integration

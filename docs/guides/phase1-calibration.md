@@ -543,7 +543,7 @@ See [Phase 2 Documentation](phase2-webapp.md) for details.
 
 ### Documentation
 
-- **Getting Started**: [Getting Started Guide](../getting-started/README.md)
+- **Getting Started**: [Main README](../../README.md)
 - **Quick Reference**: [Quick Reference](../getting-started/QUICK_REFERENCE.md)
 - **Testing Guide**: [autonomous/testing/README.md](../../autonomous/testing/README.md)
 - **Config Reference**: [config/drone_config.yaml](../../config/drone_config.yaml)

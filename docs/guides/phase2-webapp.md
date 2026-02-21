@@ -307,7 +307,7 @@ Phase 3 will add **position estimation** using optical flow:
 
 - **Phase 1**: [Flight Control Calibration](phase1-calibration.md) - Flight control calibration
 - **Turbodrone Integration**: [Turbodrone Architecture](turbodrone-architecture.md) - Architecture patterns
-- **Getting Started**: [Getting Started Guide](../getting-started/README.md) - Setup and installation
+- **Getting Started**: [Main README](../../README.md) - Setup and installation
 
 ---
 

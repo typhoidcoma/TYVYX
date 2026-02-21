@@ -16,7 +16,7 @@ RTP/MJPEG reassembly (RFC 2435):
   - JPEG scan data follows; client must build the full JPEG file:
     SOI + DQT(s) + SOF0 + DHT + SOS + scan_data + EOI
 
-Duck-typed adapter — same interface as PushJpegVideoProtocolAdapter:
+Duck-typed adapter — same interface as K417ProtocolEngine:
   start() / stop() / is_running() / get_frame(timeout) / get_packets()
   start_keepalive() / stop_keepalive()  (no-ops)
 """

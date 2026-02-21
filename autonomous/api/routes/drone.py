@@ -10,7 +10,7 @@ from typing import Optional
 import logging
 
 from autonomous.services.drone_service import drone_service
-from autonomous.services.network_service import find_drone_interface
+from autonomous.services.network_service import find_drone_interface, find_bind_ip_fast
 
 logger = logging.getLogger(__name__)
 
@@ -55,25 +55,31 @@ async def connect(request: ConnectRequest):
     try:
         bind_ip = request.bind_ip or ""
         drone_ip = request.drone_ip or ""
-
-        # Auto-detect adapter, bind IP, and drone IP (gateway) from WiFi
-        drone_iface = find_drone_interface()
         ssid = ""
-
-        if not drone_ip and drone_iface and drone_iface.gateway_ip:
-            drone_ip = drone_iface.gateway_ip  # gateway = drone IP
-            logger.info(f"Auto-detected drone IP from gateway: {drone_ip}")
-
-        if not bind_ip and drone_iface and drone_iface.local_ip:
-            bind_ip = drone_iface.local_ip
-            logger.info(f"Auto-detected bind IP: {drone_iface.name} -> {bind_ip}")
-
-        if drone_iface and drone_iface.ssid:
-            ssid = drone_iface.ssid
-
         probe_port = 0
-        if drone_iface and drone_iface.probe_port:
-            probe_port = drone_iface.probe_port
+
+        if drone_ip:
+            # Fast path: IP provided — just find bind_ip (~200ms ipconfig)
+            if not bind_ip:
+                bind_ip = find_bind_ip_fast(drone_ip)
+                logger.info(f"Fast bind_ip lookup: {bind_ip or 'none'}")
+        else:
+            # Slow path: full auto-detection (netsh + ipconfig + arp + probes)
+            drone_iface = find_drone_interface()
+
+            if drone_iface and drone_iface.gateway_ip:
+                drone_ip = drone_iface.gateway_ip
+                logger.info(f"Auto-detected drone IP from gateway: {drone_ip}")
+
+            if not bind_ip and drone_iface and drone_iface.local_ip:
+                bind_ip = drone_iface.local_ip
+                logger.info(f"Auto-detected bind IP: {drone_iface.name} -> {bind_ip}")
+
+            if drone_iface and drone_iface.ssid:
+                ssid = drone_iface.ssid
+
+            if drone_iface and drone_iface.probe_port:
+                probe_port = drone_iface.probe_port
 
         if not drone_ip:
             raise HTTPException(
@@ -219,8 +225,8 @@ async def send_command(request: CommandRequest):
             return {"success": success, "message": "Axes set" if success else "Not armed"}
 
         elif action == "raw":
-            # Send raw bytes (hex string like "010203")
-            hex_str = params.get("bytes", "")
+            # Send raw bytes (hex string like "ef000400")
+            hex_str = params.get("data", "") or params.get("bytes", "")
             try:
                 cmd_bytes = bytes.fromhex(hex_str)
                 success = await drone_service.send_command(cmd_bytes)

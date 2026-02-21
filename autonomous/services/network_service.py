@@ -414,6 +414,29 @@ def _find_adapter_by_gateway_probe() -> Optional[DroneAdapter]:
     return None
 
 
+def find_bind_ip_fast(drone_ip):
+    # type: (str) -> str
+    """Find local IP on the same /24 subnet as drone_ip.
+
+    Fast path: single ``ipconfig`` call (~200ms), no UDP probes or ARP.
+    Returns empty string if no match found.
+    """
+    subnet = ".".join(drone_ip.split(".")[:3]) + "."
+
+    try:
+        result = subprocess.run(
+            ["ipconfig"], capture_output=True, text=True, timeout=3,
+        )
+    except Exception:
+        return ""
+
+    for line in result.stdout.splitlines():
+        m = re.match(r"^\s+IPv4 Address.*?:\s*([\d.]+)", line)
+        if m and m.group(1).startswith(subnet):
+            return m.group(1)
+    return ""
+
+
 def find_drone_interface() -> Optional[DroneAdapter]:
     """Find the network adapter connected to the drone.
 

@@ -174,20 +174,30 @@ class DroneService:
             if self._video_streaming:
                 await self.stop_video()
 
-            if self.drone:
-                try:
-                    loop = asyncio.get_event_loop()
-                    await loop.run_in_executor(None, self.drone.disconnect)
-                except Exception as e:
-                    logger.error(f"Error in drone.disconnect(): {e}")
-        except Exception as e:
-            logger.error(f"Error disconnecting: {e}")
-        finally:
-            # Always reset state, even if cleanup failed
+            # Capture reference, then reset state immediately for fast UI
+            drone = self.drone
             self._connected = False
             self.drone = None
             self._drone_protocol = None
-            logger.info("Disconnected from drone")
+
+            # Blocking cleanup in background (daemon thread handles joins)
+            if drone:
+                def _bg_disconnect():
+                    try:
+                        drone.disconnect()
+                    except Exception as e:
+                        logger.debug("Background disconnect cleanup: %s", e)
+                threading.Thread(
+                    target=_bg_disconnect, daemon=True,
+                    name="DroneDisconnect",
+                ).start()
+        except Exception as e:
+            logger.error(f"Error disconnecting: {e}")
+            self._connected = False
+            self.drone = None
+            self._drone_protocol = None
+
+        logger.info("Disconnected from drone")
 
     async def start_video(self, protocol: str = "") -> dict:
         """
@@ -489,38 +499,50 @@ class DroneService:
                 continue
 
     async def stop_video(self):
-        """Stop video stream."""
+        """Stop video stream (non-blocking — cleanup runs in background)."""
         if not self._video_streaming:
             return
 
+        # Capture references before clearing state
+        receiver = self._video_receiver
+        pump_stop = self._pump_stop
+        drone = self.drone
+
+        # Reset state immediately for fast UI response
+        self._pump_thread = None
+        self._pump_stop = None
+        self._video_receiver = None
+        self._video_streaming = False
+        self._video_protocol = None
+
         try:
-            # Stop controller heartbeat + clear engine BEFORE closing socket
-            if isinstance(self.drone, WifiUavDroneController):
-                self.drone.set_engine(None)
-                self.drone._stop_heartbeat()
+            # Signal controller to stop engine TX (instant)
+            if isinstance(drone, WifiUavDroneController):
+                drone.set_engine(None)
+                drone._heartbeat_running = False
 
             # Signal all WS/MJPEG clients to close gracefully
             await self.frame_hub.shutdown()
 
-            # Stop frame pump
-            if self._pump_stop:
-                self._pump_stop.set()
-            if self._pump_thread:
-                self._pump_thread.join(timeout=2.0)
-
-            # Stop video receiver
-            if self._video_receiver:
-                self._video_receiver.stop()
+            # Signal frame pump to stop (instant)
+            if pump_stop:
+                pump_stop.set()
         except Exception as e:
-            logger.error(f"Error stopping video: {e}")
-        finally:
-            # Always reset state, even if cleanup failed
-            self._pump_thread = None
-            self._pump_stop = None
-            self._video_receiver = None
-            self._video_streaming = False
-            self._video_protocol = None
-            logger.info("Video stream stopped")
+            logger.error(f"Error signaling video stop: {e}")
+
+        # Blocking cleanup (joins, socket close) in background daemon thread
+        if receiver:
+            def _bg_video_cleanup():
+                try:
+                    receiver.stop()
+                except Exception as e:
+                    logger.debug("Background video cleanup: %s", e)
+            threading.Thread(
+                target=_bg_video_cleanup, daemon=True,
+                name="VideoStopCleanup",
+            ).start()
+
+        logger.info("Video stream stopped")
 
     async def send_command(self, command: bytes) -> bool:
         if not self._connected or not self.drone:

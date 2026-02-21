@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { droneApi, type DroneStatus } from './services/api'
 import { WifiScanner } from './components/WifiScanner'
 import { DroneVideo } from './components/DroneVideo'
@@ -7,10 +7,11 @@ import { FlightControls } from './components/FlightControls'
 function App() {
   const [droneIp, setDroneIp] = useState('192.168.169.1')
   const [status, setStatus] = useState<DroneStatus | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [connecting, setConnecting] = useState(false)
   const [message, setMessage] = useState('')
   const [flightArmed, setFlightArmed] = useState(false)
   const [rawHex, setRawHex] = useState('')
+  const videoAutoStarted = useRef(false)
 
   // Poll drone status every 2s
   useEffect(() => {
@@ -26,55 +27,81 @@ function App() {
     return () => clearInterval(id)
   }, [])
 
-  const withLoading = async (fn: () => Promise<{ message?: string } | void>) => {
-    setLoading(true)
+  const isStreaming = !!status?.video_streaming
+  const isConnected = !!status?.connected
+
+  // Auto-start video when connected but not streaming
+  useEffect(() => {
+    if (isConnected && !isStreaming && !videoAutoStarted.current) {
+      videoAutoStarted.current = true
+      droneApi.startVideo()
+        .then(() => droneApi.getStatus())
+        .then(s => setStatus(s))
+        .catch(() => { videoAutoStarted.current = false })
+    }
+    if (!isConnected) {
+      videoAutoStarted.current = false
+    }
+  }, [isConnected, isStreaming])
+
+  const handleConnect = async () => {
+    setConnecting(true)
     setMessage('')
     try {
-      const result = await fn()
-      if (result && 'message' in result && result.message) setMessage(result.message)
+      const result = await droneApi.connect(droneIp)
+      if (result.message) setMessage(result.message)
+      // Set status immediately from connect response (triggers auto-video)
+      if (result.status) setStatus(result.status)
     } catch (err) {
       setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`)
     }
-    setLoading(false)
+    setConnecting(false)
   }
 
-  const handleConnect = () => withLoading(async () => {
-    return await droneApi.connect(droneIp)
-  })
+  const handleDisconnect = () => {
+    // Optimistic: update UI immediately, don't wait for backend
+    setStatus(prev => prev ? { ...prev, connected: false, video_streaming: false } : null)
+    setFlightArmed(false)
+    setMessage('')
+    droneApi.disconnect().catch(() => {})
+  }
 
-  const handleDisconnect = () => withLoading(async () => {
-    return await droneApi.disconnect()
-  })
-
-  const handleVideoToggle = () => withLoading(async () => {
-    if (status?.video_streaming) {
-      await droneApi.stopVideo()
-      return { message: 'Video stopped' }
-    } else {
-      return await droneApi.startVideo()
+  const handleVideoToggle = async () => {
+    try {
+      if (isStreaming) {
+        await droneApi.stopVideo()
+        videoAutoStarted.current = true // prevent auto-restart after manual stop
+      } else {
+        videoAutoStarted.current = false
+        await droneApi.startVideo()
+      }
+      setStatus(await droneApi.getStatus())
+    } catch (err) {
+      setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`)
     }
-  })
+  }
 
-  const handleSwitchCamera = (cam: number) => withLoading(() => droneApi.switchCamera(cam))
+  const handleSwitchCamera = async (cam: number) => {
+    try { await droneApi.switchCamera(cam) } catch (error) { console.error(String(error)) }
+  }
 
-  const handleHeadless = () => withLoading(() => droneApi.headless())
+  const handleHeadless = async () => {
+    try { await droneApi.headless() } catch (error) { console.error(String(error)) }
+  }
 
   const handleSendRaw = () => {
     const hex = rawHex.replace(/\s/g, '')
     if (!hex) return
-    withLoading(() => droneApi.sendRaw(hex))
+    droneApi.sendRaw(hex).catch(() => {})
   }
-
-  const isStreaming = !!status?.video_streaming
-  const isConnected = !!status?.connected
 
   return (
     <div className="min-h-screen bg-base text-heading flex flex-col">
 
       {/* Header */}
-      <header className="px-4 py-3 border-b border-border flex items-center gap-4">
-        <img src="/tyvyx_icon.svg" alt="TYVYX icon" className="h-24 w-24" />
-        <h1 className="text-xl font-bold">Drone Controller</h1>
+      <header className="relative px-4 py-3 border-b border-border flex items-center gap-4">
+        <img src="/tyvyx_icon.svg" alt="TYVYX icon" className="h-10 w-10 absolute left-1/2 -translate-x-1/2" />
+ 
         <span className={`ml-auto font-mono text-sm ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
           {isConnected ? '● Connected' : '○ Disconnected'}
         </span>
@@ -98,15 +125,15 @@ function App() {
             />
             <button
               onClick={handleConnect}
-              disabled={loading || isConnected}
+              disabled={connecting || isConnected}
               className="px-4 py-1.5 rounded font-medium text-sm transition-colors
                 bg-green-700 hover:bg-green-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
             >
-              Connect
+              {connecting ? 'Connecting...' : 'Connect'}
             </button>
             <button
               onClick={handleDisconnect}
-              disabled={loading || !isConnected}
+              disabled={!isConnected}
               className="px-4 py-1.5 rounded font-medium text-sm transition-colors
                 bg-red-700 hover:bg-red-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
             >
@@ -125,7 +152,7 @@ function App() {
             <div className="flex items-center gap-2">
               <button
                 onClick={handleVideoToggle}
-                disabled={loading || !isConnected}
+                disabled={!isConnected}
                 className={`px-3 py-1 rounded font-medium text-xs transition-colors
                   disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed ${
                   isStreaming
@@ -137,7 +164,7 @@ function App() {
               </button>
               <button
                 onClick={() => handleSwitchCamera(1)}
-                disabled={loading || !isConnected}
+                disabled={!isConnected}
                 className="px-3 py-1 rounded font-medium text-xs transition-colors
                   bg-purple-700 hover:bg-purple-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
               >
@@ -145,7 +172,7 @@ function App() {
               </button>
               <button
                 onClick={() => handleSwitchCamera(2)}
-                disabled={loading || !isConnected}
+                disabled={!isConnected}
                 className="px-3 py-1 rounded font-medium text-xs transition-colors
                   bg-purple-700 hover:bg-purple-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
               >
@@ -162,7 +189,7 @@ function App() {
                 <p className="text-sm">
                   {!isConnected
                     ? 'Connect to drone to enable video'
-                    : 'Click Start Video above'}
+                    : 'Starting video...'}
                 </p>
               </div>
             )}
@@ -175,7 +202,7 @@ function App() {
             <span className="font-semibold text-heading text-sm">Flight Controls</span>
             <button
               onClick={handleHeadless}
-              disabled={loading || !isConnected}
+              disabled={!isConnected}
               className="px-3 py-1 rounded font-medium text-xs transition-colors
                 bg-indigo-700 hover:bg-indigo-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
             >
@@ -203,7 +230,7 @@ function App() {
             />
             <button
               onClick={handleSendRaw}
-              disabled={loading || !isConnected || !rawHex.replace(/\s/g, '')}
+              disabled={!isConnected || !rawHex.replace(/\s/g, '')}
               className="px-4 py-1.5 rounded font-medium text-sm transition-colors
                 bg-gray-600 hover:bg-gray-500 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
             >

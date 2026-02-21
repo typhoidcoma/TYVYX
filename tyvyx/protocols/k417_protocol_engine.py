@@ -1,24 +1,21 @@
-"""K417 Unified Protocol Engine — TX (RC) + RX (video) on a single socket.
+"""K417 Unified Protocol Engine — Pull-based video + burst RC on single socket.
 
-Reverse-engineered from Wireshark capture of YN Fly Android app (Feb 2026).
-
-This engine replaces the split architecture of PushJpegVideoProtocolAdapter
-(keepalive only) + WifiUavDroneController (idle heartbeat).  It owns the UDP
-socket and handles both directions:
+Adopted from turbodrone's pull-based approach (I:\\Projects\\turbodrone).
+After each completed frame, sends REQUEST_A + REQUEST_B pair to ACK the
+frame and pull the next one.  This should yield higher FPS than START_STREAM
+keepalives (~1.5fps) by properly advancing the drone's sliding window.
 
   TX:
-    - ef 00 (START_STREAM) at ~10Hz — video keepalive + frame re-request
-    - 88-byte RC packets (ef 02 58 00) at 40Hz — stick data + frame ACK
-    - Both carry a LE uint32 counter at bytes [12:16] = completed frame count
+    - REQUEST_A (88B) + REQUEST_B (124B) pair after each frame (pull-based)
+    - 88B burst RC (20-byte format) per frame (~frame-synced)
+    - Warmup: START_STREAM + REQUEST(0) every 200ms until first frame
 
-  RX (continuous):
+  RX:
     - 0x93 0x01 JPEG fragments (56-byte header + payload)
-    - Fragment reassembly → complete JPEG frame
-    - Frame completion immediately sends START_STREAM to request next frame
+    - Fragment reassembly -> complete JPEG frame
 
-Startup state machine:
-  INIT      → ef 00 at 10Hz only, wait for first frame
-  STREAMING → ef 00 at 10Hz + 88B RC at 40Hz
+  Watchdog:
+    - 80ms per-frame timeout, 3 retries before drop + advance
 
 Interface matches VideoReceiverService adapter contract:
   start(), stop(), is_running(), get_frame(), get_shared_socket()
@@ -35,32 +32,29 @@ from typing import Dict, Optional
 
 from tyvyx.models.video_frame import VideoFrame
 from tyvyx.utils.wifi_uav_jpeg import generate_jpeg_headers_full, EOI
-from tyvyx.utils.k417_packets import START_STREAM, build_rc_88b
+from tyvyx.utils.wifi_uav_packets import START_STREAM, REQUEST_A, REQUEST_B
+from tyvyx.utils.k417_packets import build_rc_88b
 
 
-# 0x93 protocol constants (same as push_jpeg adapter)
+# 0x93 protocol constants
 MAGIC = b"\x93\x01"
 HEADER_SIZE = 56
 OFF_FRAG_ID = 32
 OFF_FRAG_TOTAL = 36
-OFF_SEQ_FLY = 8
-
-# State machine phases
-_PHASE_INIT = 0       # ef 00 only — wait for first frame
-_PHASE_STREAMING = 1  # ef 00 + 88B RC at 40Hz
+OFF_FRAME_ID = 16  # u16LE, same offset turbodrone uses (always 1 on K417)
 
 
 class K417ProtocolEngine:
-    """Unified TX/RX protocol engine for K417 drones.
+    """Pull-based TX/RX protocol engine for K417 drones.
 
     Implements the VideoReceiverService adapter interface so it drops
     into the existing video pipeline without changes.
     """
 
-    # TX mode constants
-    MODE_EF00_ONLY = "ef00"       # START_STREAM only (baseline, ~2fps)
-    MODE_EF02_ONLY = "ef02"       # ef 02 RC packets only
-    MODE_BOTH = "both"            # ef 00 + ef 02 (full protocol)
+    FRAME_TIMEOUT = 0.08     # 80ms before watchdog retries a request
+    MAX_RETRIES = 3          # retries per frame before dropping
+    WATCHDOG_SLEEP = 0.05    # 50ms between watchdog checks
+    WARMUP_INTERVAL = 0.2    # 200ms between warmup re-sends
 
     def __init__(
         self,
@@ -72,17 +66,15 @@ class K417ProtocolEngine:
         jpeg_height=360,
         components=3,
         debug=False,
-        tx_mode="both",
         **kwargs,
     ):
         self.drone_ip = drone_ip
         self.port = port
         self.bind_ip = bind_ip
-        self._fc = flight_controller  # WifiUavFlightController (reads sticks/flags)
+        self._fc = flight_controller
 
         self._debug = debug
         self._dbg = (lambda *a, **k: print(*a, **k)) if debug else (lambda *a, **k: None)
-        self._tx_mode = tx_mode  # "ef00", "ef02", or "both"
 
         # Pre-built JPEG header
         self._jpeg_header = generate_jpeg_headers_full(jpeg_width, jpeg_height, components)
@@ -90,21 +82,22 @@ class K417ProtocolEngine:
         # Socket
         self._sock = self._create_socket()
 
-        # ── TX state ──
-        self._tx_counter = 0         # uint32: = frame_count (increments per completed frame)
-        self._tx_tick = 0            # counts TX ticks for periodic START_STREAM
-        self._phase = _PHASE_INIT
-
         # ── RX state (fragment reassembly) ──
         self._fragments = {}  # type: Dict[int, bytes]
         self._frag_total = 0
-        self._seq_fly = 0            # from drone header (constant=1 on K417)
+        self._frame_id = 0       # from drone header bytes [16:17]
         self._frame_count = 0
+
+        # ── Request / retry state ──
+        self._last_req_time = 0.0
+        self._retry_cnt = 0
+        self._warmup = True      # True until first frame received
 
         # Threading
         self._running = False
-        self._tx_thread = None   # type: Optional[threading.Thread]
-        self._rx_thread = None   # type: Optional[threading.Thread]
+        self._rx_thread = None       # type: Optional[threading.Thread]
+        self._warmup_thread = None   # type: Optional[threading.Thread]
+        self._watchdog_thread = None # type: Optional[threading.Thread]
         self._frame_q = queue.Queue(maxsize=4)  # type: queue.Queue[VideoFrame]
 
         # Stats
@@ -112,8 +105,8 @@ class K417ProtocolEngine:
         self.frames_dropped = 0
         self.packets_rx = 0
         self.packets_rejected = 0
+        self.retry_attempts = 0
         self._last_frame_time = 0.0
-        self._last_rx_time = 0.0
         self._stall_timeout = 30.0
         self._stats_time = time.time()
         self._stats_pkts = 0
@@ -130,10 +123,11 @@ class K417ProtocolEngine:
             return
 
         self._running = True
-        self._phase = _PHASE_INIT
+        self._warmup = True
 
-        # Send initial START_STREAM burst
+        # Kick-off: START_STREAM + request frame 0 (drone responds with frame 1)
         self._send(START_STREAM)
+        self._send_frame_request(0)
 
         # RX thread
         self._rx_thread = threading.Thread(
@@ -141,22 +135,27 @@ class K417ProtocolEngine:
         )
         self._rx_thread.start()
 
-        # TX thread
-        self._tx_thread = threading.Thread(
-            target=self._tx_loop, daemon=True, name="K417-TX",
+        # Warmup: resend START_STREAM + request every 200ms until first frame
+        self._warmup_thread = threading.Thread(
+            target=self._warmup_loop, daemon=True, name="K417-Warmup",
         )
-        self._tx_thread.start()
+        self._warmup_thread.start()
 
-        print(f"[k417] Engine started (tx_mode={self._tx_mode})")
+        # Watchdog: 80ms per-frame timeout, retries
+        self._watchdog_thread = threading.Thread(
+            target=self._watchdog_loop, daemon=True, name="K417-Watchdog",
+        )
+        self._watchdog_thread.start()
+
+        print("[k417] Engine started (pull-based REQUEST_A+B)")
 
     def stop(self):
         # type: () -> None
         self._running = False
 
-        if self._rx_thread and self._rx_thread.is_alive():
-            self._rx_thread.join(timeout=1.0)
-        if self._tx_thread and self._tx_thread.is_alive():
-            self._tx_thread.join(timeout=1.5)
+        for t in [self._rx_thread, self._warmup_thread, self._watchdog_thread]:
+            if t and t.is_alive():
+                t.join(timeout=1.0)
 
         try:
             self._sock.close()
@@ -164,7 +163,8 @@ class K417ProtocolEngine:
             pass
 
         print(f"[k417] Engine stopped  ok={self.frames_ok}  dropped={self.frames_dropped}  "
-              f"rx={self.packets_rx}  rejected={self.packets_rejected}")
+              f"rx={self.packets_rx}  rejected={self.packets_rejected}  "
+              f"retries={self.retry_attempts}")
 
     def is_running(self):
         # type: () -> bool
@@ -225,43 +225,95 @@ class K417ProtocolEngine:
         except OSError:
             pass
 
-    # ── TX thread ──
+    # ── Frame request (pull-based, ported from turbodrone) ──
 
-    def _tx_loop(self):
-        # type: () -> None
-        """Send ef 00 (START_STREAM) at ~10Hz as video keepalive.
+    def _send_frame_request(self, frame_id):
+        # type: (int) -> None
+        """Send REQUEST_A + REQUEST_B pair to ACK frame and pull next.
 
-        RC packets are NOT sent from this loop — sustained ef 02 at 40Hz
-        kills the video stream.  Instead, RC is burst-sent from _emit_frame()
-        right after each completed frame (option 3: frame-synced RC).
+        The pair is byte-identical to turbodrone's implementation.
+        frame_id is patched at bytes [12:13] (REQUEST_A) and
+        [12:13], [88:89], [107:108] (REQUEST_B).
         """
-        print("[k417] TX thread started")
-        interval = 0.1  # 100ms = 10Hz
+        lo = frame_id & 0xFF
+        hi = (frame_id >> 8) & 0xFF
 
+        rqst_a = bytearray(REQUEST_A)
+        rqst_a[12] = lo
+        rqst_a[13] = hi
+
+        rqst_b = bytearray(REQUEST_B)
+        for base in (12, 88, 107):
+            rqst_b[base] = lo
+            rqst_b[base + 1] = hi
+
+        self._send(bytes(rqst_a))
+        self._send(bytes(rqst_b))
+        self._last_req_time = time.time()
+        self._dbg(f"[k417] REQ fid={frame_id}")
+
+    # ── Warmup loop ──
+
+    def _warmup_loop(self):
+        # type: () -> None
+        """Resend START_STREAM + frame request every 200ms until first frame."""
+        while self._running and self._warmup:
+            try:
+                self._send(START_STREAM)
+                self._send_frame_request(0)
+            except Exception:
+                pass
+            time.sleep(self.WARMUP_INTERVAL)
+        self._dbg("[k417] Warmup loop stopped")
+
+    # ── Watchdog loop ──
+
+    def _watchdog_loop(self):
+        # type: () -> None
+        """Per-frame timeout: retry request after 80ms, drop after MAX_RETRIES."""
         while self._running:
-            self._tx_tick += 1
-            self._send(START_STREAM)
-            time.sleep(interval)
+            time.sleep(self.WATCHDOG_SLEEP)
+            now = time.time()
 
-        self._dbg("[k417] TX thread stopped")
+            if now - self._last_req_time < self.FRAME_TIMEOUT:
+                continue  # still within timeout
 
-    def _send_rc_tick(self):
+            if self._retry_cnt < self.MAX_RETRIES:
+                self._dbg(f"[k417] Watchdog retry {self._retry_cnt + 1}/{self.MAX_RETRIES}")
+                self._send_frame_request(self._frame_id or 0)
+                self._retry_cnt += 1
+                self.retry_attempts += 1
+            else:
+                # Drop current frame, request fresh
+                self.frames_dropped += 1
+                self._fragments.clear()
+                self._retry_cnt = 0
+                self._send_frame_request(self._frame_id or 0)
+                self._dbg("[k417] Watchdog drop + re-request")
+
+    # ── RC burst (frame-synced) ──
+
+    def _send_rc_burst(self):
         # type: () -> None
-        """Send one 88-byte RC packet.
-
-        Counter at bytes [12:16] = number of completed frames received.
-        The drone reads this as a frame ACK.
-        """
-        roll, pitch, throttle, yaw, flags = self._get_fc_state()
-        pkt = build_rc_88b(self._tx_counter, roll, pitch, throttle, yaw, flags)
+        """Send one 88B RC packet with 20-byte format, synced to frame."""
+        roll, pitch, throttle, yaw, cmd, headless = self._get_fc_state()
+        pkt = build_rc_88b(
+            self._frame_id, roll, pitch, throttle, yaw, cmd, headless,
+        )
         self._send(pkt)
 
     def _get_fc_state(self):
         # type: () -> tuple
-        """Read RC state from flight controller, or return neutral."""
+        """Read RC state from flight controller, convert to 20-byte format.
+
+        Returns (roll, pitch, throttle, yaw, cmd, headless).
+        """
         if self._fc is not None and hasattr(self._fc, 'get_rc_state'):
-            return self._fc.get_rc_state()
-        return (128, 128, 128, 128, 0x40)
+            roll, pitch, throttle, yaw, flags = self._fc.get_rc_state()
+            # Convert 8-byte flags → 20-byte cmd+headless
+            cmd = flags & 0x07   # takeoff=1, land=2, calibrate=4
+            return (roll, pitch, throttle, yaw, cmd, 2)
+        return (128, 128, 128, 128, 0, 2)
 
     # ── RX thread — receive 0x93 video fragments, assemble JPEG ──
 
@@ -285,7 +337,7 @@ class K417ProtocolEngine:
 
             self.packets_rx += 1
             self._stats_pkts += 1
-            self._last_rx_time = time.time()
+            self._retry_cnt = 0  # Reset retry on any received data
 
             # Periodic stats (every 5s)
             now = time.time()
@@ -294,10 +346,10 @@ class K417ProtocolEngine:
                 pps = self._stats_pkts / elapsed
                 fps = self._stats_frames / elapsed
                 nfrags = len(self._fragments)
-                phase_name = "INIT" if self._phase == _PHASE_INIT else "STREAMING"
+                state = "WARMUP" if self._warmup else "STREAMING"
                 print(f"[k417] STATS: {pps:.1f} pkt/s | {fps:.1f} fps | "
                       f"frags={nfrags}/{self._frag_total} | "
-                      f"tx_ctr={self._tx_counter} | phase={phase_name}")
+                      f"retries={self.retry_attempts} | {state}")
                 self._stats_pkts = 0
                 self._stats_frames = 0
                 self._stats_time = now
@@ -319,7 +371,7 @@ class K417ProtocolEngine:
             # Parse header
             frag_id = struct.unpack_from("<H", data, OFF_FRAG_ID)[0]
             frag_total = struct.unpack_from("<H", data, OFF_FRAG_TOTAL)[0]
-            seq_fly = struct.unpack_from("<Q", data, OFF_SEQ_FLY)[0]
+            frame_id = struct.unpack_from("<H", data, OFF_FRAME_ID)[0]
 
             # New frame: frag_id == 0 resets assembly
             if frag_id == 0:
@@ -327,7 +379,7 @@ class K417ProtocolEngine:
                     self.frames_dropped += 1
                 self._fragments.clear()
                 self._frag_total = frag_total
-                self._seq_fly = seq_fly
+                self._frame_id = frame_id
 
             # Store fragment
             payload = data[HEADER_SIZE:]
@@ -342,16 +394,14 @@ class K417ProtocolEngine:
 
     def _emit_frame(self):
         # type: () -> None
-        """Assemble fragments into JPEG, queue it, advance frame ACK counter."""
+        """Assemble fragments into JPEG, queue it, pull next frame."""
         if not self._fragments:
             return
 
         self._last_frame_time = time.time()
         self._frame_count += 1
         self._stats_frames += 1
-
-        # Advance frame ACK counter — tells the drone we've received this frame
-        self._tx_counter = self._frame_count & 0xFFFFFFFF
+        self._retry_cnt = 0
 
         # Reassemble in order
         ordered = [self._fragments[i] for i in sorted(self._fragments)]
@@ -376,21 +426,17 @@ class K417ProtocolEngine:
         if self.frames_ok <= 5 or self.frames_ok % 100 == 0:
             print(f"[k417] Frame {self._frame_count}: {len(jpeg)} bytes  "
                   f"({len(self._fragments)}/{self._frag_total} frags)  "
-                  f"seq_fly={self._seq_fly}  tx_ctr={self._tx_counter}")
+                  f"fid={self._frame_id}  retries={self.retry_attempts}")
 
         self._fragments.clear()
 
-        # Immediately request next frame (critical for sustained streaming —
-        # the old PushJpegVideoProtocolAdapter does this at line 387)
-        self._send(START_STREAM)
+        # Pull next frame: send REQUEST_A + REQUEST_B pair
+        self._send_frame_request(self._frame_id)
 
-        # Burst RC: send one 88B RC packet right after START_STREAM.
-        # Sustained 40Hz ef 02 kills video, but a single burst per frame
-        # (~1.7 RC/s synced to video cadence) should be tolerated.
-        if self._tx_mode != self.MODE_EF00_ONLY and self._phase == _PHASE_STREAMING:
-            self._send_rc_tick()
+        # Burst RC: one 88B per frame (frame-synced, won't kill video)
+        self._send_rc_burst()
 
-        # Transition INIT → STREAMING after first frame
-        if self._phase == _PHASE_INIT:
-            self._phase = _PHASE_STREAMING
-            print("[k417] -> STREAMING phase (first frame received, enabling RC)")
+        # Stop warmup after first frame
+        if self._warmup:
+            self._warmup = False
+            print("[k417] -> STREAMING (first frame received, warmup stopped)")

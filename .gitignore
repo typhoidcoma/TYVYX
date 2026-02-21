@@ -41,6 +41,7 @@ node_modules/
 
 # Test artifacts
 *.pcap
+*.bin
 *.tmp
 test.pcap
 

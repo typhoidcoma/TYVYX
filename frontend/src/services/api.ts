@@ -131,4 +131,132 @@ export const videoApi = {
   },
 };
 
+// Depth Estimation APIs
+export interface DepthData {
+  enabled: boolean;
+  avg_depth: number;
+  altitude: number;
+  timestamp: number;
+  process_time_ms: number;
+  total_inferences: number;
+  total_frames: number;
+  model_loaded: boolean;
+  model_name: string;
+  process_every_n: number;
+}
+
+export const depthApi = {
+  getStatus: async () => {
+    const response = await api.get('/api/depth/status');
+    return response.data;
+  },
+
+  getData: async (): Promise<DepthData> => {
+    const response = await api.get<DepthData>('/api/depth/data');
+    return response.data;
+  },
+
+  getMapUrl: () => `${API_BASE_URL}/api/depth/map`,
+
+  start: async () => {
+    const response = await api.post('/api/depth/start');
+    return response.data;
+  },
+
+  stop: async () => {
+    const response = await api.post('/api/depth/stop');
+    return response.data;
+  },
+
+  setSensitivity: async (value: number) => {
+    const response = await api.post('/api/depth/sensitivity', { value });
+    return response.data;
+  },
+
+  setMaxDepth: async (value: number) => {
+    const response = await api.post('/api/depth/max_depth', { value });
+    return response.data;
+  },
+
+  setDepthScale: async (value: number) => {
+    const response = await api.post('/api/depth/depth_scale', { value });
+    return response.data;
+  },
+};
+
+// WiFi RSSI Distance APIs
+export interface RssiData {
+  enabled: boolean;
+  signal_pct: number;
+  rssi_dbm: number;
+  distance: number;
+  ssid: string;
+  timestamp: number;
+  model: { rssi_ref: number; d_ref: number; n: number };
+  calibration_points: number;
+}
+
+export const rssiApi = {
+  getStatus: async () => {
+    const response = await api.get('/api/rssi/status');
+    return response.data;
+  },
+
+  getData: async (): Promise<RssiData> => {
+    const response = await api.get<RssiData>('/api/rssi/data');
+    return response.data;
+  },
+
+  start: async () => {
+    const response = await api.post('/api/rssi/start');
+    return response.data;
+  },
+
+  stop: async () => {
+    const response = await api.post('/api/rssi/stop');
+    return response.data;
+  },
+
+  calibrate: async (distance: number) => {
+    const response = await api.post('/api/rssi/calibrate', { distance });
+    return response.data;
+  },
+
+  getCalibration: async () => {
+    const response = await api.get('/api/rssi/calibration');
+    return response.data;
+  },
+};
+
+// Position APIs
+export const positionApi = {
+  groundZero: async () => {
+    const response = await api.post('/api/position/ground_zero');
+    return response.data;
+  },
+
+  setCameraMode: async (mode: 'bottom' | 'front') => {
+    const response = await api.post('/api/position/camera_mode', { mode });
+    return response.data;
+  },
+};
+
+// Autopilot APIs
+export const autopilotApi = {
+  getState: async () => {
+    const response = await api.get('/api/autopilot/state');
+    return response.data;
+  },
+
+  enable: async (x?: number, y?: number) => {
+    const response = await api.post('/api/autopilot/enable', { x: x ?? null, y: y ?? null });
+    return response.data;
+  },
+
+  disable: async () => {
+    const response = await api.post('/api/autopilot/disable');
+    return response.data;
+  },
+};
+
 export default api;

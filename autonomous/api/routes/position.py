@@ -33,6 +33,11 @@ class AltitudeRequest(BaseModel):
     altitude: float = Field(..., gt=0.0, le=100.0, description="Altitude in meters (0.1-100m)")
 
 
+class CameraModeRequest(BaseModel):
+    """Request to set camera mode for position tracking"""
+    mode: str = Field(..., description="Camera mode: 'bottom' (optical flow) or 'front'")
+
+
 class ResetRequest(BaseModel):
     """Request to reset position"""
     x: float = Field(default=0.0, description="Initial X position in meters")
@@ -50,12 +55,14 @@ class PositionData(BaseModel):
     """Position data response"""
     x: float
     y: float
+    z: float = 0.0
 
 
 class VelocityData(BaseModel):
     """Velocity data response"""
     vx: float
     vy: float
+    vz: float = 0.0
 
 
 class PositionResponse(BaseModel):
@@ -65,6 +72,7 @@ class PositionResponse(BaseModel):
     altitude: float
     enabled: bool
     feature_count: int
+    camera_mode: str = "front"
     timestamp: float
 
 
@@ -85,6 +93,7 @@ class UncertaintyData(BaseModel):
     """Position uncertainty data"""
     sigma_x: float
     sigma_y: float
+    sigma_z: float = 0.0
 
 
 class MeasurementData(BaseModel):
@@ -133,15 +142,18 @@ async def get_current_position() -> PositionResponse:
         return PositionResponse(
             position=PositionData(
                 x=data['position']['x'],
-                y=data['position']['y']
+                y=data['position']['y'],
+                z=data['position'].get('z', 0.0)
             ),
             velocity=VelocityData(
                 vx=data['velocity']['vx'],
-                vy=data['velocity']['vy']
+                vy=data['velocity']['vy'],
+                vz=data['velocity'].get('vz', 0.0)
             ),
             altitude=data['altitude'],
             enabled=data['enabled'],
             feature_count=data['feature_count'],
+            camera_mode=data.get('camera_mode', 'front'),
             timestamp=data['timestamp']
         )
 
@@ -210,11 +222,13 @@ async def get_statistics() -> StatisticsResponse:
             'enabled': stats['enabled'],
             'position': PositionData(
                 x=stats['position']['x'],
-                y=stats['position']['y']
+                y=stats['position']['y'],
+                z=stats['position'].get('z', 0.0)
             ),
             'velocity': VelocityData(
                 vx=stats['velocity']['vx'],
-                vy=stats['velocity']['vy']
+                vy=stats['velocity']['vy'],
+                vz=stats['velocity'].get('vz', 0.0)
             ),
             'altitude': stats['altitude'],
             'frame_count': stats['frame_count'],
@@ -229,7 +243,8 @@ async def get_statistics() -> StatisticsResponse:
         if 'uncertainty' in stats:
             response_data['uncertainty'] = UncertaintyData(
                 sigma_x=stats['uncertainty']['sigma_x'],
-                sigma_y=stats['uncertainty']['sigma_y']
+                sigma_y=stats['uncertainty']['sigma_y'],
+                sigma_z=stats['uncertainty'].get('sigma_z', 0.0)
             )
 
         if 'last_measurement' in stats:
@@ -320,6 +335,57 @@ async def stop_tracking() -> StatusResponse:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to stop tracking: {str(e)}"
+        )
+
+
+@router.post(
+    "/ground_zero",
+    summary="Calibrate ground zero",
+    description="Set current drone position as (0,0,0) ground reference and anchor RSSI distance"
+)
+async def ground_zero():
+    """
+    Calibrate ground zero — call when drone is on the ground before takeoff.
+
+    Resets position to (0,0,0), records current RSSI distance as the laptop
+    anchor position, and clears all tracking state.
+    """
+    try:
+        result = position_service.ground_zero()
+        return result
+    except Exception as e:
+        logger.error("Error calibrating ground zero: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post(
+    "/camera_mode",
+    summary="Set camera mode for tracking",
+    description="Switch between bottom camera (optical flow) and front camera"
+)
+async def set_camera_mode(request: CameraModeRequest):
+    """
+    Set camera mode for position tracking.
+
+    'bottom' — downward-facing camera for optical flow (correct for tracking).
+    'front' — forward-facing camera (tracking won't produce meaningful results).
+    """
+    try:
+        result = position_service.set_camera_mode(request.mode)
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error("Error setting camera mode: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
 
 

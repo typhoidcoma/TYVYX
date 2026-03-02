@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { droneApi, WS_BASE_URL } from '../services/api'
+import { droneApi, autopilotApi, WS_BASE_URL } from '../services/api'
 
 interface FlightControlsProps {
   connected: boolean
@@ -25,9 +25,15 @@ const KEY_AXES: Record<string, { axis: string; value: number }> = {
 
 export function FlightControls({ connected, armed, onArmedChange }: FlightControlsProps) {
   const [loading, setLoading] = useState(false)
+  const [posHold, setPosHold] = useState(false)
+  const [posHoldLoading, setPosHoldLoading] = useState(false)
   const heldKeys = useRef<Set<string>>(new Set())
   const sendTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const rcWsRef = useRef<WebSocket | null>(null)
+  const posHoldRef = useRef(false)
+
+  // Keep ref in sync for use in callbacks
+  posHoldRef.current = posHold
 
   const handleArm = async () => {
     setLoading(true)
@@ -60,6 +66,27 @@ export function FlightControls({ connected, armed, onArmedChange }: FlightContro
     try { await droneApi.calibrate() } catch (error) { console.error(String(error)) }
   }
 
+  const handlePosHold = async () => {
+    setPosHoldLoading(true)
+    try {
+      if (posHold) {
+        await autopilotApi.disable()
+        setPosHold(false)
+      } else {
+        await autopilotApi.enable()
+        setPosHold(true)
+      }
+    } catch (error) {
+      console.error('Position hold error:', String(error))
+    }
+    setPosHoldLoading(false)
+  }
+
+  // Disable posHold UI when disarmed
+  useEffect(() => {
+    if (!armed) setPosHold(false)
+  }, [armed])
+
   // Build axes from currently held keys
   const buildAxes = useCallback(() => {
     const axes: Record<string, number> = {
@@ -80,28 +107,44 @@ export function FlightControls({ connected, armed, onArmedChange }: FlightContro
   // Send stick state via WebSocket (fast) or HTTP fallback
   const sendStickState = useCallback(() => {
     const axes = buildAxes()
-    let hasInput = false
-    if (axes.throttle !== NEUTRAL || axes.yaw !== NEUTRAL ||
-        axes.pitch !== NEUTRAL || axes.roll !== NEUTRAL) {
-      hasInput = true
-    }
+    const inPosHold = posHoldRef.current
+
+    // Check if there's any manual input
+    const hasThrottleYaw = axes.throttle !== NEUTRAL || axes.yaw !== NEUTRAL
+    const hasPitchRoll = axes.pitch !== NEUTRAL || axes.roll !== NEUTRAL
+
+    // During posHold: suppress pitch/roll, but still send throttle/yaw
+    // Outside posHold: send all axes
+    const hasInput = inPosHold ? hasThrottleYaw : (hasThrottleYaw || hasPitchRoll)
 
     if (!hasInput) return
 
     // Try WebSocket first (lowest latency)
     const ws = rcWsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        t: axes.throttle,
-        y: axes.yaw,
-        p: axes.pitch,
-        r: axes.roll,
-      }))
+      if (inPosHold) {
+        // Only send throttle/yaw — autopilot controls pitch/roll
+        ws.send(JSON.stringify({
+          t: axes.throttle,
+          y: axes.yaw,
+        }))
+      } else {
+        ws.send(JSON.stringify({
+          t: axes.throttle,
+          y: axes.yaw,
+          p: axes.pitch,
+          r: axes.roll,
+        }))
+      }
       return
     }
 
     // HTTP fallback
-    droneApi.setAxes(axes).catch(() => {})
+    if (inPosHold) {
+      droneApi.setAxes({ throttle: axes.throttle, yaw: axes.yaw }).catch(() => {})
+    } else {
+      droneApi.setAxes(axes).catch(() => {})
+    }
   }, [buildAxes])
 
   // RC WebSocket lifecycle: open when armed, close when not
@@ -172,6 +215,13 @@ export function FlightControls({ connected, armed, onArmedChange }: FlightContro
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
 
       if (e.key in KEY_AXES) {
+        // During posHold, suppress pitch/roll keys (autopilot controls those)
+        const mapping = KEY_AXES[e.key]
+        if (posHoldRef.current && (mapping.axis === 'pitch' || mapping.axis === 'roll')) {
+          e.preventDefault()
+          return
+        }
+
         e.preventDefault()
         const wasEmpty = heldKeys.current.size === 0
         heldKeys.current.add(e.key)
@@ -265,17 +315,35 @@ export function FlightControls({ connected, armed, onArmedChange }: FlightContro
       </div>
 
       {armed && (
+        <div className="mb-3">
+          <button
+            onClick={handlePosHold}
+            disabled={!armed || posHoldLoading}
+            className={`w-full px-4 py-2 rounded font-bold text-sm transition-colors
+              disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed ${
+              posHold
+                ? 'bg-cyan-600 hover:bg-cyan-500 animate-pulse'
+                : 'bg-teal-700 hover:bg-teal-600'
+            }`}
+          >
+            {posHoldLoading ? '...' : posHold ? 'POS HOLD ACTIVE' : 'POS HOLD'}
+          </button>
+        </div>
+      )}
+
+      {armed && (
         <div className="text-xs text-dim bg-panel rounded p-2 font-mono">
           <div className="grid grid-cols-2 gap-x-4 gap-y-1">
             <span>W/S &mdash; Throttle</span>
-            <span>&uarr;/&darr; &mdash; Pitch</span>
+            <span className={posHold ? 'line-through opacity-40' : ''}>&uarr;/&darr; &mdash; Pitch</span>
             <span>A/D &mdash; Yaw</span>
-            <span>&larr;/&rarr; &mdash; Roll</span>
+            <span className={posHold ? 'line-through opacity-40' : ''}>&larr;/&rarr; &mdash; Roll</span>
             <span>Space &mdash; Takeoff</span>
             <span>X &mdash; Land</span>
           </div>
           <div className="mt-1 text-[10px] text-dim/60">
             {rcWsRef.current?.readyState === WebSocket.OPEN ? '● WS RC' : '○ HTTP RC'}
+            {posHold && ' | POS HOLD'}
           </div>
         </div>
       )}

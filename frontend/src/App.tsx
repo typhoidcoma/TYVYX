@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { droneApi, type DroneStatus } from './services/api'
 import { DroneVideo } from './components/DroneVideo'
 import { FlightControls } from './components/FlightControls'
+import { AutopilotPanel } from './components/AutopilotPanel'
+import { SensorPanel } from './components/SensorPanel'
 
 function App() {
   const [droneIp, setDroneIp] = useState('192.168.169.1')
@@ -97,154 +99,154 @@ function App() {
   return (
     <div className="min-h-screen bg-base text-heading flex flex-col">
 
-      {/* Header */}
-      <header className="px-4 py-3 border-b border-border flex items-center gap-4">
-        <span className={`ml-auto font-mono text-sm ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
-          {isConnected ? '● Connected' : '○ Disconnected'}
-        </span>
-        {isStreaming && (
-          <span className="font-mono text-sm text-green-400">● Video</span>
-        )}
-      </header>
-
-      <main className="max-w-5xl w-full mx-auto px-4 py-4 space-y-4 flex-1">
-
-        {/* Connection Bar */}
-        <div className="bg-card border border-border rounded-lg p-3">
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-dim uppercase tracking-wide shrink-0">Drone IP</label>
-            <input
-              type="text"
-              value={droneIp}
-              onChange={(e) => setDroneIp(e.target.value)}
-              className="flex-1 max-w-[200px] px-3 py-1.5 rounded bg-panel border border-border text-heading text-sm font-mono focus:outline-none focus:border-accent"
-              placeholder="192.168.169.1"
-            />
+      {/* Top Bar: connection + status */}
+      <header className="px-4 py-2 border-b border-border flex items-center gap-3">
+        <img src="/tyvyx_logo_1.svg" alt="TYVYX" className="h-5 w-auto opacity-70" />
+        <div className="flex items-center gap-2 ml-2">
+          <input
+            type="text"
+            value={droneIp}
+            onChange={(e) => setDroneIp(e.target.value)}
+            className="w-36 px-2 py-1 rounded bg-panel border border-border text-heading text-xs font-mono focus:outline-none focus:border-accent"
+            placeholder="192.168.169.1"
+          />
+          {!isConnected ? (
             <button
               onClick={handleConnect}
-              disabled={connecting || isConnected}
-              className="px-4 py-1.5 rounded font-medium text-sm transition-colors
+              disabled={connecting}
+              className="px-3 py-1 rounded font-medium text-xs transition-colors
                 bg-green-700 hover:bg-green-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
             >
-              {connecting ? 'Connecting...' : 'Connect'}
+              {connecting ? '...' : 'Connect'}
             </button>
+          ) : (
             <button
               onClick={handleDisconnect}
-              disabled={!isConnected}
-              className="px-4 py-1.5 rounded font-medium text-sm transition-colors
-                bg-red-700 hover:bg-red-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
+              className="px-3 py-1 rounded font-medium text-xs transition-colors
+                bg-red-700 hover:bg-red-600"
             >
               Disconnect
             </button>
-          </div>
+          )}
         </div>
+        {message && (
+          <span className="text-xs text-dim truncate max-w-[300px]">{message}</span>
+        )}
+        <div className="ml-auto flex items-center gap-3">
+          <span className={`font-mono text-xs ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
+            {isConnected ? '● Connected' : '○ Disconnected'}
+          </span>
+          {isStreaming && (
+            <span className="font-mono text-xs text-green-400">● Video</span>
+          )}
+        </div>
+      </header>
 
-        {/* Video Feed */}
-        <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="px-4 py-2 border-b border-border flex items-center justify-between">
-            <span className="font-semibold text-heading text-sm">Video Feed</span>
+      <main className="flex-1 flex gap-3 p-3 min-h-0">
+
+        {/* Left Column: Video + Controls (compact) */}
+        <div className="w-80 shrink-0 flex flex-col gap-3">
+
+          {/* Video Feed (compact) */}
+          <div className="bg-card border border-border rounded-lg overflow-hidden">
+            <div className="px-3 py-1.5 border-b border-border flex items-center justify-between">
+              <span className="font-semibold text-heading text-xs">Camera</span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleVideoToggle}
+                  disabled={!isConnected}
+                  className={`px-2 py-0.5 rounded font-medium text-[10px] transition-colors
+                    disabled:opacity-40 ${
+                    isStreaming
+                      ? 'bg-orange-700 hover:bg-orange-600'
+                      : 'bg-blue-700 hover:bg-blue-600'
+                  }`}
+                >
+                  {isStreaming ? 'Stop' : 'Start'}
+                </button>
+                <button
+                  onClick={() => handleSwitchCamera(1)}
+                  disabled={!isConnected}
+                  className="px-1.5 py-0.5 rounded font-medium text-[10px] transition-colors
+                    bg-purple-700 hover:bg-purple-600 disabled:opacity-40"
+                >
+                  1
+                </button>
+                <button
+                  onClick={() => handleSwitchCamera(2)}
+                  disabled={!isConnected}
+                  className="px-1.5 py-0.5 rounded font-medium text-[10px] transition-colors
+                    bg-purple-700 hover:bg-purple-600 disabled:opacity-40"
+                >
+                  2
+                </button>
+              </div>
+            </div>
+            <div className="aspect-video bg-black flex items-center justify-center">
+              {isStreaming ? (
+                <DroneVideo streaming={true} className="w-full h-full" />
+              ) : (
+                <div className="text-dim text-center select-none p-4">
+                  <p className="text-xs">
+                    {!isConnected ? 'No connection' : 'Starting...'}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Flight Controls */}
+          <div className="bg-card border border-border rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-semibold text-heading text-xs">Flight Controls</span>
+              <button
+                onClick={handleHeadless}
+                disabled={!isConnected}
+                className="px-2 py-0.5 rounded font-medium text-[10px] transition-colors
+                  bg-indigo-700 hover:bg-indigo-600 disabled:opacity-40"
+              >
+                Headless
+              </button>
+            </div>
+            <FlightControls
+              connected={isConnected}
+              armed={flightArmed}
+              onArmedChange={setFlightArmed}
+            />
+          </div>
+
+          {/* Autopilot Panel (self-hiding when disabled) */}
+          <AutopilotPanel />
+
+          {/* Raw Command */}
+          <div className="bg-card border border-border rounded-lg p-2">
             <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={rawHex}
+                onChange={(e) => setRawHex(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSendRaw() }}
+                className="flex-1 px-2 py-1 rounded bg-panel border border-border text-heading text-xs font-mono focus:outline-none focus:border-accent"
+                placeholder="ef 00 04 00"
+              />
               <button
-                onClick={handleVideoToggle}
-                disabled={!isConnected}
-                className={`px-3 py-1 rounded font-medium text-xs transition-colors
-                  disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed ${
-                  isStreaming
-                    ? 'bg-orange-700 hover:bg-orange-600'
-                    : 'bg-blue-700 hover:bg-blue-600'
-                }`}
-              >
-                {isStreaming ? 'Stop Video' : 'Start Video'}
-              </button>
-              <button
-                onClick={() => handleSwitchCamera(1)}
-                disabled={!isConnected}
+                onClick={handleSendRaw}
+                disabled={!isConnected || !rawHex.replace(/\s/g, '')}
                 className="px-3 py-1 rounded font-medium text-xs transition-colors
-                  bg-purple-700 hover:bg-purple-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
+                  bg-gray-600 hover:bg-gray-500 disabled:opacity-40"
               >
-                Cam 1
-              </button>
-              <button
-                onClick={() => handleSwitchCamera(2)}
-                disabled={!isConnected}
-                className="px-3 py-1 rounded font-medium text-xs transition-colors
-                  bg-purple-700 hover:bg-purple-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
-              >
-                Cam 2
+                Send
               </button>
             </div>
           </div>
-          <div className="aspect-video bg-black flex items-center justify-center">
-            {isStreaming ? (
-              <DroneVideo streaming={true} className="w-full h-full" />
-            ) : (
-              <div className="text-dim text-center select-none">
-                <div className="text-5xl mb-3 opacity-30">&#x2B1B;</div>
-                <p className="text-sm">
-                  {!isConnected
-                    ? 'Connect to drone to enable video'
-                    : 'Starting video...'}
-                </p>
-              </div>
-            )}
-          </div>
         </div>
 
-        {/* Flight Controls */}
-        <div className="bg-card border border-border rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
-            <span className="font-semibold text-heading text-sm">Flight Controls</span>
-            <button
-              onClick={handleHeadless}
-              disabled={!isConnected}
-              className="px-3 py-1 rounded font-medium text-xs transition-colors
-                bg-indigo-700 hover:bg-indigo-600 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
-            >
-              Headless
-            </button>
-          </div>
-          <FlightControls
-            connected={isConnected}
-            armed={flightArmed}
-            onArmedChange={setFlightArmed}
-          />
+        {/* Right Column: Sensor Fusion (main content, fills remaining space) */}
+        <div className="flex-1 min-w-0">
+          <SensorPanel />
         </div>
 
-        {/* Raw Command */}
-        <div className="bg-card border border-border rounded-lg p-3">
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-dim uppercase tracking-wide shrink-0">Raw Hex</label>
-            <input
-              type="text"
-              value={rawHex}
-              onChange={(e) => setRawHex(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleSendRaw() }}
-              className="flex-1 px-3 py-1.5 rounded bg-panel border border-border text-heading text-sm font-mono focus:outline-none focus:border-accent"
-              placeholder="ef 00 04 00"
-            />
-            <button
-              onClick={handleSendRaw}
-              disabled={!isConnected || !rawHex.replace(/\s/g, '')}
-              className="px-4 py-1.5 rounded font-medium text-sm transition-colors
-                bg-gray-600 hover:bg-gray-500 disabled:bg-panel disabled:text-dim disabled:cursor-not-allowed"
-            >
-              Send
-            </button>
-          </div>
-        </div>
-
-        {/* Status Message */}
-        {message && (
-          <div className="px-3 py-2 rounded bg-panel border border-border text-sm text-muted">
-            {message}
-          </div>
-        )}
       </main>
-
-      <footer className="px-10 pb-6 pt-2 flex flex-col items-center gap-32">
-
-        <img src="/tyvyx_logo_1.svg" alt="TYVYX" className="h-8 md:h-10 w-auto opacity-100" />
-      </footer>
     </div>
   )
 }

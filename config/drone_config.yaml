@@ -191,13 +191,32 @@ slam:
     map_save_interval: 30  # seconds
     loop_closure_enabled: true
 
-# Position estimation (Phase 3)
+# Position estimation (Phase 3 → 3D EKF)
 position_estimation:
-  default_altitude: 1.0          # Default altitude in meters
-  process_noise: 0.03            # Kalman filter process noise
-  measurement_noise: 0.1         # Kalman filter measurement noise
+  default_altitude: 0.0          # Start at ground level (calibrated via ground_zero)
+  process_noise: 0.03            # EKF process noise (XY)
+  measurement_noise: 0.1         # Optical flow velocity noise
   max_trajectory_points: 1000    # Maximum trajectory history points
   update_rate: 10                # Position update rate (Hz)
+
+# Depth estimation (Depth Anything V2 on GPU)
+depth:
+  model_name: "DPT_Hybrid"  # Intel MiDaS DPT-Hybrid (~71ms/frame, near real-time)
+  device: "cuda"
+  process_every_n: 1             # Run as fast as GPU allows (busy guard prevents queue)
+  auto_feed_altitude: true       # Auto-feed altitude to position EKF
+  colormap: "inferno"            # Colormap for depth visualization
+  max_depth: 20.0                # Clamp depth to this max (meters)
+  ema_alpha: 0.4                 # Temporal smoothing: 0.4 new + 0.6 old
+  depth_scale: 200.0              # MiDaS inverse-depth→meters: depth = scale / raw (calibrate!)
+
+# WiFi RSSI distance estimation
+wifi_rssi:
+  poll_hz: 10.0                  # RSSI polling rate (netsh ~100ms/call, so ~10Hz max)
+  rssi_ref: -50.0                # Reference RSSI at d_ref (dBm) — K417 drone AP at 1m
+  d_ref: 1.0                     # Reference distance (meters)
+  path_loss_exponent: 2.5        # Indoor path-loss exponent (2.0-3.5)
+  smoothing_window: 5            # Moving-average window size
 
 # Map configuration
 map:

@@ -33,11 +33,16 @@ from tyvyx.protocols.rtsp_video_protocol import RtspVideoProtocolAdapter
 from tyvyx.utils.dropping_queue import DroppingQueue
 from tyvyx.frame_hub import FrameHub
 from autonomous.services.position_service import position_service
+from autonomous.services.depth_service import depth_service
+from autonomous.services.wifi_rssi_service import wifi_rssi_service
 
 logger = logging.getLogger(__name__)
 
 # Thread pool for position processing (shared, avoid blocking video stream)
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="position")
+
+# Separate thread pool for depth inference (GPU-bound, must not block position pipeline)
+_depth_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="depth")
 
 # Protocol type constants
 PROTOCOL_E88PRO = "e88pro"
@@ -154,6 +159,19 @@ class DroneService:
             if connected:
                 self._connected = True
                 logger.info(f"Connected to drone (protocol={self._drone_protocol})")
+
+                # Auto-start RSSI polling so readings are available for ground_zero
+                if not wifi_rssi_service.is_enabled():
+                    wifi_rssi_service.start()
+
+                # Auto-start position tracking so optical flow processes frames
+                from autonomous.services.position_service import position_service
+                if not position_service.is_enabled():
+                    try:
+                        position_service.start()
+                    except RuntimeError:
+                        logger.warning("Position service not initialized, skipping auto-start")
+
                 return True
             else:
                 logger.error("Failed to connect to drone")
@@ -169,8 +187,22 @@ class DroneService:
         if not self._connected and not self.drone:
             return
 
+        # Kill autopilot on disconnect
+        from autonomous.services.autopilot_service import autopilot_service
+        if autopilot_service.is_enabled():
+            autopilot_service.disable()
+
         try:
             logger.info("Disconnecting from drone...")
+
+            # Stop position tracking and RSSI polling
+            from autonomous.services.position_service import position_service
+            if position_service.is_enabled():
+                position_service.stop()
+
+            if wifi_rssi_service.is_enabled():
+                wifi_rssi_service.stop()
+
             if self._video_streaming:
                 await self.stop_video()
 
@@ -441,7 +473,6 @@ class DroneService:
         """Bridge thread: pulls VideoFrames from queue, publishes to asyncio FrameHub.
         Also feeds position tracking every 3rd frame.
         Detects stream stalls and notifies clients (borrowed from turbodrone)."""
-        frame_counter = 0
         total_frames = 0
         first_frame_seen = False
         last_frame_time = time.monotonic()
@@ -479,14 +510,19 @@ class DroneService:
                         frame_hub.publish(frame.data), loop
                     )
 
-                    # Position tracking at reduced rate (~10 Hz)
-                    frame_counter += 1
-                    if frame_counter >= 3 and position_service.is_enabled():
-                        frame_counter = 0
+                    # Decode JPEG once for all CV consumers
+                    img = None
+                    if position_service.is_enabled() or depth_service.is_enabled():
                         np_arr = np.frombuffer(frame.data, dtype=np.uint8)
                         img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-                        if img is not None:
-                            _executor.submit(position_service.process_frame, img)
+
+                    # Position tracking — every frame (~21 Hz)
+                    if position_service.is_enabled() and img is not None:
+                        _executor.submit(position_service.process_frame, img)
+
+                    # Depth estimation — every Nth frame (throttled inside service)
+                    if depth_service.is_enabled() and img is not None:
+                        _depth_executor.submit(depth_service.process_frame, img)
             except queue.Empty:
                 # Log stall but do NOT kill clients — adapter will recover
                 if first_frame_seen and (time.monotonic() - last_frame_time) > STALL_TIMEOUT:
@@ -631,6 +667,12 @@ class DroneService:
         return False
 
     async def disarm_flight(self) -> bool:
+        # Disable autopilot before disarming
+        from autonomous.services.autopilot_service import autopilot_service
+        if autopilot_service.is_enabled():
+            autopilot_service.disable()
+            logger.info("Autopilot disabled due to disarm")
+
         fc = self._get_fc()
         if fc and hasattr(fc, 'stop'):
             fc.stop()

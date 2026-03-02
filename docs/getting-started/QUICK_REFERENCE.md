@@ -2,23 +2,21 @@
 
 ## Network Details
 
-### K417 (WiFi UAV) — Primary
+### K417 (WiFi UAV) - Primary
 ```
 Drone IP:       192.168.169.1
-Video Port:     8800 (push-based 0x93 JPEG fragments)
-Control Port:   8801
-SSID Pattern:   Drone-* | FLOW_* | FlOW_* | K417 | HD-* | FHD-*
-Video Source:   Port 1234 (not 8800)
-Protocol:       Push-based — send START_STREAM, drone pushes JPEG
+Port:           8800 (video AND control - single port)
+Video Source:   Port 1234 (drone pushes from here)
+SSID Pattern:   Drone-* | FLOW_* | K417 | HD-* | FHD-*
+Protocol:       Pull-based REQUEST_A/B for 21fps, push fallback
 ```
 
 ### E88Pro (Legacy)
 ```
 Drone IP:       192.168.1.1
-Video Port:     7070 (pull-based S2x JPEG fragments)
+Video Port:     7070
 Control Port:   7099
 SSID Pattern:   WIFI_* | GD89Pro_* | WTECH-*
-Protocol:       Pull-based — S2x 0x40 0x40 sync
 ```
 
 ## Quick Start
@@ -29,8 +27,7 @@ python -m autonomous.api.main
 # Frontend (separate terminal)
 cd frontend && npm run dev
 
-# Open browser
-# http://localhost:5173
+# Open http://localhost:5173
 ```
 
 ## API Endpoints
@@ -41,76 +38,48 @@ cd frontend && npm run dev
 | Drone | `/api/drone/command` | arm, disarm, takeoff, land, calibrate, headless, camera1, camera2 |
 | Video | `/api/video/ws` | WebSocket binary frames (primary) |
 | Video | `/api/video/feed` | MJPEG HTTP stream (fallback) |
-| Position | `/api/position/current` | x, y, velocity, altitude, features |
-| Position | `/api/position/trajectory` | History (max 1000 points) |
+| Position | `/api/position/current` | x, y, z, velocity, altitude, camera mode |
+| Position | `/api/position/ground_zero` | Set (0,0,0) reference |
+| Position | `/api/position/camera_mode` | Switch front/bottom camera |
+| Depth | `/api/depth/data` | Depth + altitude data |
+| RSSI | `/api/rssi/data` | WiFi signal distance |
+| RC | `/api/rc/ws` | WebSocket real-time sticks |
+| Autopilot | `/api/autopilot/enable` | Position hold |
+| Debug | `/api/debug/pipeline` | Full sensor fusion status |
+| Debug | `/api/debug/ekf/state` | EKF state vector + covariance |
 | Network | `/api/network/scan` | WiFi scan with drone detection |
 
-## Frontend Keyboard Shortcuts
+## Keyboard Flight Controls (when armed)
 
-### Flight Controls (when armed)
 | Key | Action |
 |-----|--------|
-| W | Pitch forward |
-| S | Pitch backward |
-| A | Roll left |
-| D | Roll right |
-| Arrow Up | Increase throttle |
-| Arrow Down | Decrease throttle |
-| Arrow Left | Yaw left |
-| Arrow Right | Yaw right |
-
-### UI Controls
-| Action | Location |
-|--------|----------|
-| Connect/Disconnect | Top bar button |
-| Start/Stop Video | Top bar button |
-| Arm/Disarm | Flight controls panel |
-| Takeoff/Land | Flight controls panel |
-| Calibrate | Flight controls panel |
-| Camera 1/2 | Camera switch buttons |
+| W / S | Pitch forward / backward |
+| A / D | Roll left / right |
+| Arrow Up / Down | Throttle up / down |
+| Arrow Left / Right | Yaw left / right |
 
 ## K417 UDP Commands
 
-| Command | Bytes | Purpose |
-|---------|-------|---------|
-| Start video stream | `ef 00 04 00` | Kick off push JPEG (re-sent every 100ms as keepalive) |
+| Command | Hex | Description |
+|---------|-----|-------------|
+| Start video | `ef 00 04 00` | Start push JPEG (re-sent as keepalive) |
 | Front camera | `ef 01 02 00 06 01` | Switch to front camera |
 | Bottom camera | `ef 01 02 00 06 02` | Switch to bottom/optical flow camera |
 | RC control | `ef 02 7c 00 ...` | ~120-byte packet with rolling counters |
-
-## E88Pro UDP Commands
-
-| Command | Bytes | Purpose |
-|---------|-------|---------|
-| Heartbeat | `01 01` | Keep alive (every 1s) |
-| Initialize | `08 01` | Init drone |
-| Camera 1 | `06 01` | Switch camera |
-| Camera 2 | `06 02` | Switch camera |
-| Flight | `03 66 R P T Y F X 99` | 9-byte RC packet |
-
-## Python API
-
-```python
-from tyvyx import TYVYXDroneControllerAdvanced, FlightController
-
-# E88Pro direct control (no web UI)
-drone = TYVYXDroneControllerAdvanced()
-if drone.connect():
-    drone.start_video_stream()
-    ret, frame = drone.get_frame()
-    drone.disconnect()
-```
 
 ## File Structure
 ```
 TEKY/
 ├── autonomous/api/main.py          # FastAPI entry point
-├── autonomous/services/            # DroneService, PositionService
+├── autonomous/api/routes/          # drone, video, position, rc, autopilot,
+│                                   # depth, rssi, network, debug
+├── autonomous/services/            # DroneService, PositionService, DepthService,
+│                                   # WifiRssiService, AutopilotService
+├── tyvyx/protocols/                # K417 engine, push JPEG, S2x adapters
 ├── tyvyx/wifi_uav_controller.py    # K417 controller
-├── tyvyx/drone_controller_advanced.py  # E88Pro controller
-├── tyvyx/protocols/                # Video protocol adapters
 ├── frontend/src/App.tsx            # React UI
-├── scripts/                        # Diagnostic tools
+├── frontend/src/components/        # DroneVideo, FlightControls, SensorPanel,
+│                                   # AutopilotPanel, Position3DBox
 ├── config/drone_config.yaml        # All settings
 └── docs/                           # Documentation
 ```
@@ -118,28 +87,24 @@ TEKY/
 ## Troubleshooting Quick Checks
 
 ```bash
-# Check drone is reachable (K417)
-ping 192.168.169.1
+# Check drone is reachable
+ping 192.168.169.1    # K417
+ping 192.168.1.1      # E88Pro
 
-# Check drone is reachable (E88Pro)
-ping 192.168.1.1
-
-# Run tests
-python -m pytest tests/ -v
-
-# Kill stuck backend (Windows)
+# Kill stuck backend (Windows PowerShell)
 Get-Process python* | Stop-Process -Force
 ```
 
-## What Works / What Doesn't
+## Feature Status
 
 | Feature | Status |
 |---------|--------|
-| Video streaming (K417) | ~2 FPS (push protocol bottleneck) |
-| Video streaming (E88Pro) | Works |
+| Video streaming (K417) | 21fps pull-based protocol engine |
 | Flight control | Arm, disarm, takeoff, land, calibrate, headless, manual axes |
 | Camera switch | Front and bottom cameras |
-| Position tracking | Optical flow + Kalman filter (needs calibration) |
+| Position tracking | Optical flow + EKF + depth + RSSI (bottom camera) |
+| Depth estimation | Monocular depth (Depth Anything V2) |
+| RSSI distance | WiFi signal path-loss model |
+| Debug/testing | Individual sensor injection endpoints |
 | SLAM / Mapping | Not started (Phase 4) |
-| Waypoint navigation | Not started (Phase 5) |
 | Battery / telemetry | Not available from drone |

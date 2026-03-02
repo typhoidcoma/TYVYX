@@ -1,6 +1,4 @@
-# TYVYX Project — API Reference
-
-Reference for all modules, classes, and endpoints in the current codebase.
+# TYVYX Project - API Reference
 
 ## Quick Start
 
@@ -12,131 +10,172 @@ python -m autonomous.api.main
 cd frontend && npm run dev
 ```
 
-Open http://localhost:5173 in your browser.
+API docs at http://localhost:8000/docs.
 
 ## REST API Endpoints
 
-### Drone Control — `/api/drone`
+### Drone Control - `/api/drone`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/drone/connect` | Connect to drone (auto-detects protocol by subnet) |
-| POST | `/api/drone/disconnect` | Disconnect and stop all streams |
-| GET | `/api/drone/status` | Connection state, video streaming, flight armed |
-| POST | `/api/drone/command` | Send command: `start_video`, `stop_video`, `arm`, `disarm`, `takeoff`, `land`, `calibrate`, `headless`, `camera1`, `camera2` |
+| POST | `/connect` | Connect to drone (auto-detects protocol by subnet) |
+| POST | `/disconnect` | Disconnect and stop all streams |
+| GET | `/status` | Connection state, video streaming, flight armed |
+| POST | `/command` | Send command: `start_video`, `stop_video`, `arm`, `disarm`, `takeoff`, `land`, `calibrate`, `headless`, `camera1`, `camera2`, `raw` |
+| GET | `/telemetry` | Get telemetry data |
 
-### Video Streaming — `/api/video`
-
-| Method | Path | Description |
-|--------|------|-------------|
-| WS | `/api/video/ws` | WebSocket binary frames (primary, lowest latency) |
-| GET | `/api/video/feed` | MJPEG HTTP stream (fallback for browsers) |
-| GET | `/api/video/test` | Synthetic test frames (no drone needed) |
-| GET | `/api/video/status` | Streaming state and frame stats |
-| GET | `/api/video/capabilities` | Available transports |
-
-### Position Tracking — `/api/position`
+### Video Streaming - `/api/video`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/position/current` | Position (x, y), velocity, altitude, feature count |
-| GET | `/api/position/trajectory` | History with timestamps (max 1000 points) |
-| GET | `/api/position/statistics` | Uncertainty, measurement data |
-| POST | `/api/position/start` | Enable optical flow tracking |
-| POST | `/api/position/stop` | Disable tracking |
-| POST | `/api/position/reset` | Reset position to (x, y) |
-| POST | `/api/position/altitude` | Set altitude for velocity scaling |
-| POST | `/api/position/clear_trajectory` | Clear trajectory history |
+| WS | `/ws` | WebSocket binary frames (primary, lowest latency) |
+| GET | `/feed` | MJPEG HTTP stream (fallback) |
+| GET | `/status` | Streaming state and frame stats |
+| GET | `/capabilities` | Available transports |
+| WS | `/test` | Synthetic test frames (no drone needed) |
 
-### Network — `/api/network`
+### Position Tracking - `/api/position`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/network/scan` | Scan WiFi networks, flag drone-like SSIDs |
+| GET | `/current` | Position (x, y, z), velocity, altitude, feature count, camera mode |
+| GET | `/trajectory` | Trajectory history with timestamps |
+| GET | `/statistics` | Uncertainty, measurement data, EKF stats |
+| POST | `/start` | Start position tracking (auto-switches to bottom camera) |
+| POST | `/stop` | Stop tracking (restores front camera) |
+| POST | `/ground_zero` | Set current position as (0,0,0) reference, anchor RSSI |
+| POST | `/camera_mode` | Set camera mode: `bottom` (optical flow) or `front` |
+| POST | `/reset` | Reset position to (x, y) |
+| POST | `/altitude` | Set altitude for velocity scaling |
+| POST | `/clear_trajectory` | Clear trajectory history |
+
+### RC Control - `/api/rc`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| WS | `/ws` | Real-time stick control via WebSocket (JSON: `{t, y, p, r}`) |
+
+### Autopilot - `/api/autopilot`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/state` | Current autopilot state |
+| POST | `/enable` | Enable position hold (current or specified position) |
+| POST | `/disable` | Disable position hold |
+| POST | `/target` | Update target position |
+| POST | `/gains` | Tune PID gains for axis (`x` or `y`) |
+
+### Depth Estimation - `/api/depth`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/status` | Depth service status |
+| GET | `/data` | Current depth data (avg_depth, altitude, timing) |
+| GET | `/map` | Colorized depth map as JPEG |
+| POST | `/start` | Start depth estimation |
+| POST | `/stop` | Stop depth estimation |
+| POST | `/sensitivity` | Set visualization sensitivity (0-100) |
+| POST | `/max_depth` | Set max depth clamp (meters) |
+| POST | `/depth_scale` | Set depth scale multiplier |
+
+### WiFi RSSI - `/api/rssi`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/status` | RSSI service status |
+| GET | `/data` | Current RSSI + distance data |
+| GET | `/calibration` | Calibration points + model |
+| POST | `/start` | Start RSSI polling |
+| POST | `/stop` | Stop RSSI polling |
+| POST | `/calibrate` | Record calibration point at known distance |
+
+### Debug / Sensor Testing - `/api/debug`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/optical_flow` | Pixel velocity, feature count, GPU status |
+| POST | `/transform/pixel_to_world` | Test pixel-to-world velocity conversion |
+| GET | `/transform/camera` | Camera intrinsics (fx, fy, FOV) |
+| GET | `/ekf/state` | Full 6D state vector, covariance, update counts |
+| POST | `/ekf/inject_velocity` | Inject synthetic velocity measurement |
+| POST | `/ekf/inject_altitude` | Inject synthetic altitude measurement |
+| POST | `/ekf/inject_rssi` | Inject synthetic RSSI distance |
+| GET | `/depth` | Depth service diagnostics |
+| GET | `/rssi` | RSSI diagnostics (model params, calibration) |
+| POST | `/rssi/set_model` | Set path-loss model parameters |
+| POST | `/rssi/reset_calibration` | Clear calibration points |
+| GET | `/pipeline` | Full sensor fusion pipeline overview |
+
+### Network - `/api/network`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/scan` | Scan WiFi networks, flag drone-like SSIDs |
+
+### WebSocket - `/ws`
+
+| Path | Description |
+|------|-------------|
+| `/telemetry` | Telemetry stream at ~10 Hz |
 
 ## Core Modules
 
 ### Drone Controllers (`tyvyx/`)
 
 **`WifiUavDroneController`** (`tyvyx/wifi_uav_controller.py`)
-- Primary controller for K417 drones (192.168.169.1)
-- RC packet construction with rolling 16-bit counters (~120 bytes)
+- Primary controller for K417 drones (192.168.169.1:8800, single port)
+- RC packet construction with rolling 16-bit counters
 - Heartbeat: 2 Hz neutral, 80 Hz armed
 - Socket sharing with video adapter (single-port constraint)
-- `WifiUavFlightController` — arm/disarm, takeoff/land, calibrate, headless, axis control
 
 **`TYVYXDroneControllerAdvanced`** (`tyvyx/drone_controller_advanced.py`)
-- Legacy E88Pro controller (192.168.1.1)
-- 9-byte flight packets: `[0x03, 0x66, roll, pitch, throttle, yaw, flags, xor, 0x99]`
-- `FlightController` — same command interface as WifiUavFlightController
+- Legacy E88Pro controller (192.168.1.1, ports 7099/7070)
+- 9-byte flight packets
 
-### Video Pipeline (`tyvyx/protocols/`, `tyvyx/services/`)
+### Video Pipeline (`tyvyx/protocols/`, `tyvyx/frame_hub.py`)
+
+**`K417ProtocolEngine`** (`tyvyx/protocols/k417_protocol_engine.py`)
+- Pull-based video at 21fps with REQUEST_A/REQUEST_B frame ACKs
+- Frame-synced RC burst (1 per frame)
+- Warmup + watchdog threads
 
 **`PushJpegVideoProtocolAdapter`** (`tyvyx/protocols/push_jpeg_video_protocol.py`)
-- K417 push-based JPEG: 0x93 0x01 magic, 56-byte header, fragment reassembly
-- Sends `START_STREAM` (0xef 0x00 0x04 0x00) as keepalive every 100ms
-- Generates JPEG headers (SOI+DQT+DHT+SOF0+SOS) from raw fragment data
-
-**`S2xVideoProtocolAdapter`** (`tyvyx/protocols/s2x_video_protocol.py`)
-- E88Pro pull-based JPEG: 0x40 0x40 sync bytes
-
-**`VideoReceiverService`** (`tyvyx/services/video_receiver.py`)
-- Manages protocol adapter lifecycle with auto-reconnect
+- K417 push-based JPEG fallback: 0x93 0x01 magic, 56-byte header, fragment reassembly
 
 **`FrameHub`** (`tyvyx/frame_hub.py`)
-- Asyncio fan-out hub: distributes JPEG frames to multiple clients via per-client queues (size 2, drop-oldest)
+- Asyncio fan-out: distributes JPEG frames to clients via per-client queues (size 2, drop-oldest)
 
-### Position Tracking (`autonomous/perception/`, `autonomous/localization/`)
+No FFmpeg or transcoding needed. Raw JPEG passthrough end-to-end.
 
-**`OpticalFlowTracker`** (`autonomous/perception/optical_flow_tracker.py`)
-- Sparse Lucas-Kanade optical flow (CPU + CUDA auto-detection)
-- Feature re-detection when count drops below threshold
-- Outlier rejection by tracking status + flow magnitude
+### Sensor Fusion (`autonomous/`)
 
-**`PositionEstimator`** (`autonomous/localization/position_estimator.py`)
-- Kalman filter (4D state: x, y, vx, vy) with constant velocity model
-- Alternative: `SimpleDeadReckoning` (velocity integration)
+**`PositionService`** (`autonomous/services/position_service.py`)
+- Singleton wrapping optical flow + EKF + coordinate transformer
+- Camera mode switching (front/bottom) for optical flow
+- Feeds from depth (altitude) and RSSI (distance)
 
-**`CoordinateTransformer`** (`autonomous/localization/coordinate_transforms.py`)
-- Pixel velocity to world velocity conversion (depends on altitude + camera matrix)
+**`EKFPositionEstimator`** (`autonomous/localization/ekf_position_estimator.py`)
+- 6D state: [x, y, z, vx, vy, vz]
+- Fuses optical flow velocity, depth altitude, RSSI distance
+
+**`DepthService`** (`autonomous/services/depth_service.py`)
+- Monocular depth estimation (Depth Anything V2)
+- Feeds altitude to EKF when bottom camera active
+
+**`WifiRssiService`** (`autonomous/services/wifi_rssi_service.py`)
+- WiFi signal strength to distance via log-distance path-loss model
+- Calibratable with known-distance measurements
 
 ### Services (`autonomous/services/`)
 
 **`DroneService`** (`autonomous/services/drone_service.py`)
-- Singleton hub managing drone connections, video pipeline, and flight control
-- Auto-detects protocol: 192.168.169.x = WiFi UAV (K417), else = E88Pro
+- Singleton managing drone connections, video pipeline, flight control
+- 3-tier protocol detection: port probe -> SSID -> IP fallback
 - Frame pump bridges threading (UDP) to asyncio (FrameHub)
-- Feeds frames to position service at ~10 Hz
-
-**`PositionService`** (`autonomous/services/position_service.py`)
-- Singleton wrapping optical flow tracker + Kalman filter
-
-**`NetworkService`** (`autonomous/services/network_service.py`)
-- WiFi scanning with drone SSID pattern matching
 
 ## Network Constants
 
-| Drone | IP | Video Port | Control Port | Protocol |
-|-------|------|-----------|-------------|----------|
-| K417 (WiFi UAV) | 192.168.169.1 | 8800 | 8801 | Push-based 0x93 JPEG |
-| E88Pro (legacy) | 192.168.1.1 | 7070 | 7099 | Pull-based S2x JPEG |
-
-## Diagnostic Scripts (`scripts/`)
-
-| Script | Purpose |
-|--------|---------|
-| `probe_drone.py` | Network connectivity + protocol probing |
-| `analyze_packets.py` | Packet capture analysis |
-| `fingerprint_9301.py` | Classify 0x93 packet variants |
-| `probe_camera.py` | JieLi camera module probing (192.168.100.1) |
-| `probe_camera_switch.py` | Test camera switch commands |
-| `probe_lxpro_handshake.py` | lxPro encrypted protocol research |
-| `post_connect.py` | Manual connection test via API |
-| `post_drone_command.py` | Send commands via API |
-| `get_video_status.py` | Check video streaming status |
-
-## Notes
-
-- FFmpeg is **not** required — the video pipeline uses direct UDP JPEG passthrough
-- All sockets bind to the detected drone WiFi adapter IP, not `0.0.0.0`
-- The K417 requires all UDP traffic from a single source port (video + control share one socket)
+| Drone | IP | Port | Protocol |
+|-------|------|------|----------|
+| K417 (WiFi UAV) | 192.168.169.1 | 8800 | Push/Pull 0x93 JPEG (single port, video + control) |
+| E88Pro (legacy) | 192.168.1.1 | 7099/7070 | Pull-based S2x JPEG |

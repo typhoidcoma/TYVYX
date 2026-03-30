@@ -169,11 +169,21 @@ camera:
   # Frame rate (K417: ~21fps with pull-based protocol)
   fps: 21
 
-# SLAM configuration
+# SLAM / Visual Odometry configuration
 slam:
-  type: "optical_flow"  # or "openvslam" when upgraded
+  type: "visual_odometry"  # "visual_odometry" (ORB + Essential matrix) or "optical_flow" (legacy LK)
 
-  # Optical flow parameters (Phase 3: Sparse Lucas-Kanade)
+  # Visual Odometry parameters (ORB features + Essential matrix + PnP)
+  visual_odometry:
+    n_features: 500           # ORB features per frame
+    match_ratio: 0.75         # Lowe's ratio test threshold
+    min_matches: 15           # Minimum matches for pose recovery
+    keyframe_threshold: 20.0  # Min median feature displacement for keyframe (px)
+    use_pnp: true             # PnP refinement when 3D map points available
+    assumed_altitude: 1.0     # Metric scale assumption (m) when no other source
+    altitude_prior_noise: 5.0 # Weak altitude prior noise (high = less constraint)
+
+  # Optical flow parameters (legacy fallback — Sparse Lucas-Kanade)
   optical_flow:
     max_corners: 100          # Maximum features to track
     quality_level: 0.01       # Shi-Tomasi corner quality threshold
@@ -183,14 +193,6 @@ slam:
     max_level: 3              # Pyramid levels for Lucas-Kanade
     max_pixel_velocity: 50.0  # Maximum allowed pixel velocity (outlier rejection)
 
-  # Visual SLAM parameters (for future upgrade)
-  visual_slam:
-    vocab_file: "config/orb_vocab.txt"
-    num_features: 500
-    feature_detector: "ORB"
-    map_save_interval: 30  # seconds
-    loop_closure_enabled: true
-
 # Position estimation (Phase 3 → 3D EKF)
 position_estimation:
   default_altitude: 0.0          # Start at ground level (calibrated via ground_zero)
@@ -198,17 +200,6 @@ position_estimation:
   measurement_noise: 0.1         # Optical flow velocity noise
   max_trajectory_points: 1000    # Maximum trajectory history points
   update_rate: 10                # Position update rate (Hz)
-
-# Depth estimation (Depth Anything V2 on GPU)
-depth:
-  model_name: "DPT_Hybrid"  # Intel MiDaS DPT-Hybrid (~71ms/frame, near real-time)
-  device: "cuda"
-  process_every_n: 1             # Run as fast as GPU allows (busy guard prevents queue)
-  auto_feed_altitude: true       # Auto-feed altitude to position EKF
-  colormap: "inferno"            # Colormap for depth visualization
-  max_depth: 20.0                # Clamp depth to this max (meters)
-  ema_alpha: 0.4                 # Temporal smoothing: 0.4 new + 0.6 old
-  depth_scale: 200.0              # MiDaS inverse-depth→meters: depth = scale / raw (calibrate!)
 
 # WiFi RSSI distance estimation
 wifi_rssi:

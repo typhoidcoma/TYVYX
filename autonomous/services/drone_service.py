@@ -33,16 +33,12 @@ from tyvyx.protocols.rtsp_video_protocol import RtspVideoProtocolAdapter
 from tyvyx.utils.dropping_queue import DroppingQueue
 from tyvyx.frame_hub import FrameHub
 from autonomous.services.position_service import position_service
-from autonomous.services.depth_service import depth_service
 from autonomous.services.wifi_rssi_service import wifi_rssi_service
 
 logger = logging.getLogger(__name__)
 
 # Thread pool for position processing (shared, avoid blocking video stream)
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="position")
-
-# Separate thread pool for depth inference (GPU-bound, must not block position pipeline)
-_depth_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="depth")
 
 # Protocol type constants
 PROTOCOL_E88PRO = "e88pro"
@@ -510,19 +506,12 @@ class DroneService:
                         frame_hub.publish(frame.data), loop
                     )
 
-                    # Decode JPEG once for all CV consumers
-                    img = None
-                    if position_service.is_enabled() or depth_service.is_enabled():
+                    # Decode JPEG for CV consumers
+                    if position_service.is_enabled():
                         np_arr = np.frombuffer(frame.data, dtype=np.uint8)
                         img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-
-                    # Position tracking — every frame (~21 Hz)
-                    if position_service.is_enabled() and img is not None:
-                        _executor.submit(position_service.process_frame, img)
-
-                    # Depth estimation — every Nth frame (throttled inside service)
-                    if depth_service.is_enabled() and img is not None:
-                        _depth_executor.submit(depth_service.process_frame, img)
+                        if img is not None:
+                            _executor.submit(position_service.process_frame, img)
             except queue.Empty:
                 # Log stall but do NOT kill clients — adapter will recover
                 if first_frame_seen and (time.monotonic() - last_frame_time) > STALL_TIMEOUT:

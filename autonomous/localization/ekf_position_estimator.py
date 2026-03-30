@@ -32,7 +32,7 @@ class EKFPositionEstimator:
     def __init__(
         self,
         process_noise_xy: float = 0.03,
-        process_noise_z: float = 0.05,
+        process_noise_z: float = 0.02,
         measurement_noise_velocity: float = 0.1,
         measurement_noise_altitude: float = 0.3,
         measurement_noise_rssi: float = 2.0,
@@ -232,6 +232,56 @@ class EKFPositionEstimator:
             "RSSI update: measured=%.2f, predicted=%.2f, innovation=%.2f",
             distance_measured, d_predicted, y[0]
         )
+        return self.x.copy()
+
+    def update_velocity_3d(self, vx: float, vy: float, vz: float) -> np.ndarray:
+        """
+        Update with 3D velocity measurement from visual odometry.
+
+        Args:
+            vx: Measured X velocity in m/s
+            vy: Measured Y velocity in m/s
+            vz: Measured Z velocity in m/s
+
+        Returns:
+            Updated state [x, y, z, vx, vy, vz]
+        """
+        H = np.zeros((3, 6), dtype=np.float64)
+        H[0, 3] = 1.0  # observe vx
+        H[1, 4] = 1.0  # observe vy
+        H[2, 5] = 1.0  # observe vz
+
+        z = np.array([vx, vy, vz], dtype=np.float64)
+        R = np.eye(3, dtype=np.float64) * self.R_velocity
+
+        self._kf_update(H, z, R)
+        self.num_velocity_updates += 1
+        self.last_update_time = time.time()
+        return self.x.copy()
+
+    def update_altitude_prior(
+        self, altitude: float, noise: float = 5.0
+    ) -> np.ndarray:
+        """
+        Apply a weak altitude constraint to prevent Z drift.
+
+        Used when no depth sensor is available. The high noise allows
+        the filter to track real altitude changes while bounding drift.
+
+        Args:
+            altitude: Expected altitude in meters
+            noise: Measurement noise (high = weak constraint)
+
+        Returns:
+            Updated state [x, y, z, vx, vy, vz]
+        """
+        H = np.zeros((1, 6), dtype=np.float64)
+        H[0, 2] = 1.0
+
+        z_obs = np.array([altitude], dtype=np.float64)
+        R = np.array([[noise * noise]], dtype=np.float64)
+
+        self._kf_update(H, z_obs, R)
         return self.x.copy()
 
     def predict_and_update_velocity(

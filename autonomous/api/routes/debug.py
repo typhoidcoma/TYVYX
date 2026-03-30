@@ -2,8 +2,7 @@
 Debug API Routes — Individual Sensor Fusion Testing
 
 Endpoints for testing each sensor fusion component in isolation:
-- Optical flow: pixel velocity, feature count, coordinate transform
-- Depth: raw values, altitude feed status
+- Optical flow / VO: pixel velocity, feature count, coordinate transform
 - RSSI: history, model params, reset calibration
 - EKF: full state vector, covariance, inject synthetic measurements
 - Pipeline: enable/disable individual measurement streams
@@ -16,7 +15,6 @@ import logging
 import numpy as np
 
 from autonomous.services.position_service import position_service
-from autonomous.services.depth_service import depth_service
 from autonomous.services.wifi_rssi_service import wifi_rssi_service
 
 logger = logging.getLogger(__name__)
@@ -214,25 +212,38 @@ async def inject_rssi(req: InjectRssiRequest):
     }
 
 
-# ── Depth ─────────────────────────────────────────────────────
+# ── Visual Odometry ──────────────────────────────────────────
 
-@router.get("/depth", summary="Depth service diagnostics")
-async def get_depth_diagnostics():
-    """Depth service internals: model info, altitude, feed status."""
-    if not depth_service._initialized:
-        return {"initialized": False}
+@router.get("/vo", summary="Visual odometry diagnostics")
+async def get_vo_diagnostics():
+    """VO internals: match quality, keyframes, map points, pose."""
+    vo = position_service.visual_odometry
+    if vo is None:
+        return {
+            "available": False,
+            "slam_type": position_service.slam_type,
+        }
 
-    data = depth_service.get_data()
+    stats = vo.get_statistics()
+    pos = vo.get_position()
     return {
-        "enabled": data.get("enabled", False),
-        "altitude": data.get("altitude", 0),
-        "avg_depth": data.get("avg_depth", 0),
-        "model_name": data.get("model_name", "unknown"),
-        "model_loaded": data.get("model_loaded", False),
-        "process_time_ms": data.get("process_time_ms", 0),
-        "total_inferences": data.get("total_inferences", 0),
-        "feeds_ekf_altitude": position_service.using_bottom_camera,
-        "depth_scale": getattr(depth_service, 'depth_scale', None),
+        "available": True,
+        "slam_type": position_service.slam_type,
+        "frame_count": stats["frame_count"],
+        "keyframe_count": stats["keyframe_count"],
+        "map_points_count": stats["map_points_count"],
+        "lost_count": stats["lost_count"],
+        "avg_matches": stats["avg_matches"],
+        "avg_inliers": stats["avg_inliers"],
+        "inlier_ratio": stats["inlier_ratio"],
+        "vo_position": {"x": pos[0], "y": pos[1], "z": pos[2]},
+        "config": {
+            "n_features": stats["n_features"],
+            "match_ratio": stats["match_ratio"],
+            "min_matches": stats["min_matches"],
+            "keyframe_threshold": stats["keyframe_threshold"],
+            "use_pnp": stats["use_pnp"],
+        },
     }
 
 
@@ -304,19 +315,27 @@ async def get_pipeline_status():
     ekf = position_service.estimator
     ekf_stats = ekf.get_statistics() if ekf else {}
 
+    vo = position_service.visual_odometry
+    vo_stats = vo.get_statistics() if vo else {}
+
     return {
         "position_enabled": position_service.enabled,
+        "slam_type": position_service.slam_type,
         "camera_mode": "bottom" if position_service.using_bottom_camera else "front",
         "altitude": position_service.altitude,
         "fps": position_service.fps,
         "frame_count": position_service.frame_count,
-        "depth_enabled": depth_service.is_enabled(),
-        "depth_feeds_altitude": position_service.using_bottom_camera,
         "rssi_enabled": wifi_rssi_service.is_enabled(),
         "optical_flow_features": (
             position_service.optical_flow.get_feature_count()
             if position_service.optical_flow else 0
         ),
+        "vo": {
+            "keyframe_count": vo_stats.get("keyframe_count", 0),
+            "map_points_count": vo_stats.get("map_points_count", 0),
+            "inlier_ratio": vo_stats.get("inlier_ratio", 0),
+            "lost_count": vo_stats.get("lost_count", 0),
+        } if vo_stats else None,
         "ekf": {
             "updates": {
                 "velocity": ekf_stats.get("num_velocity_updates", 0),

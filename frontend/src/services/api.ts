@@ -131,55 +131,36 @@ export const videoApi = {
   },
 };
 
-// Depth Estimation APIs
-export interface DepthData {
+// SLAM / Visual Odometry APIs
+export interface SlamData {
   enabled: boolean;
-  avg_depth: number;
-  altitude: number;
-  timestamp: number;
-  process_time_ms: number;
-  total_inferences: number;
-  total_frames: number;
-  model_loaded: boolean;
-  model_name: string;
-  process_every_n: number;
+  slam_type: 'visual_odometry' | 'optical_flow';
+  keyframe_count: number;
+  map_points_count: number;
+  avg_matches: number;
+  inlier_ratio: number;
+  lost_count: number;
+  frame_count: number;
 }
 
-export const depthApi = {
-  getStatus: async () => {
-    const response = await api.get('/api/depth/status');
+export const slamApi = {
+  getStatus: async (): Promise<SlamData> => {
+    const response = await api.get<SlamData>('/api/slam/status');
     return response.data;
   },
 
-  getData: async (): Promise<DepthData> => {
-    const response = await api.get<DepthData>('/api/depth/data');
+  getStatistics: async () => {
+    const response = await api.get('/api/slam/statistics');
     return response.data;
   },
 
-  getMapUrl: () => `${API_BASE_URL}/api/depth/map`,
-
-  start: async () => {
-    const response = await api.post('/api/depth/start');
+  reset: async () => {
+    const response = await api.post('/api/slam/reset');
     return response.data;
   },
 
-  stop: async () => {
-    const response = await api.post('/api/depth/stop');
-    return response.data;
-  },
-
-  setSensitivity: async (value: number) => {
-    const response = await api.post('/api/depth/sensitivity', { value });
-    return response.data;
-  },
-
-  setMaxDepth: async (value: number) => {
-    const response = await api.post('/api/depth/max_depth', { value });
-    return response.data;
-  },
-
-  setDepthScale: async (value: number) => {
-    const response = await api.post('/api/depth/depth_scale', { value });
+  getMapPoints: async () => {
+    const response = await api.get('/api/slam/map_points');
     return response.data;
   },
 };

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { depthApi, rssiApi, positionApi, API_BASE_URL, type DepthData, type RssiData } from '../services/api'
+import { rssiApi, slamApi, positionApi, API_BASE_URL, type RssiData, type SlamData } from '../services/api'
 import { Position3DBox } from './Position3DBox'
 
 interface PositionData {
@@ -17,8 +17,6 @@ interface PipelineData {
   altitude: number
   fps: number
   frame_count: number
-  depth_enabled: boolean
-  depth_feeds_altitude: boolean
   rssi_enabled: boolean
   optical_flow_features: number
   ekf: {
@@ -45,19 +43,13 @@ interface OpticalFlowData {
 const POLL_MS = 500
 
 export function SensorPanel() {
-  const [depth, setDepth] = useState<DepthData | null>(null)
   const [rssi, setRssi] = useState<RssiData | null>(null)
+  const [slamData, setSlamData] = useState<SlamData | null>(null)
   const [position, setPosition] = useState<PositionData | null>(null)
-  const [depthLoading, setDepthLoading] = useState(false)
   const [rssiLoading, setRssiLoading] = useState(false)
   const [calDist, setCalDist] = useState('')
   const [calLoading, setCalLoading] = useState(false)
   const [calResult, setCalResult] = useState<string | null>(null)
-  const [showDepthMap, setShowDepthMap] = useState(false)
-  const [depthMapKey, setDepthMapKey] = useState(0)
-  const [sensitivity, setSensitivity] = useState(0)
-  const [maxDepth, setMaxDepth] = useState(20)
-  const [depthScale, setDepthScale] = useState(200)
   const [gzLoading, setGzLoading] = useState(false)
   const [gzResult, setGzResult] = useState<string | null>(null)
   const [showDebug, setShowDebug] = useState(false)
@@ -71,15 +63,15 @@ export function SensorPanel() {
     let active = true
     const poll = async () => {
       try {
-        const [d, r, p] = await Promise.allSettled([
-          depthApi.getData(),
+        const [r, s, p] = await Promise.allSettled([
           rssiApi.getData(),
+          slamApi.getStatus(),
           fetch(`http://localhost:${import.meta.env.VITE_API_PORT || '8000'}/api/position/current`)
             .then(res => res.json()),
         ])
         if (!active) return
-        if (d.status === 'fulfilled') setDepth(d.value)
         if (r.status === 'fulfilled') setRssi(r.value)
+        if (s.status === 'fulfilled') setSlamData(s.value)
         if (p.status === 'fulfilled') setPosition(p.value)
       } catch {
         // ignore
@@ -127,20 +119,6 @@ export function SensorPanel() {
     }
   }
 
-  const handleDepthToggle = async () => {
-    setDepthLoading(true)
-    try {
-      if (depth?.enabled) {
-        await depthApi.stop()
-      } else {
-        await depthApi.start()
-      }
-    } catch (error) {
-      console.error(String(error))
-    }
-    setDepthLoading(false)
-  }
-
   const handleRssiToggle = async () => {
     setRssiLoading(true)
     try {
@@ -182,24 +160,6 @@ export function SensorPanel() {
     }
     setGzLoading(false)
   }
-
-  // Refresh depth map when visible — wait for previous load before requesting next
-  useEffect(() => {
-    if (!showDepthMap || !depth?.enabled) return
-    let active = true
-    const refresh = () => {
-      if (!active) return
-      const img = new Image()
-      img.onload = img.onerror = () => {
-        if (!active) return
-        setDepthMapKey(k => k + 1)
-        setTimeout(refresh, 100)  // brief pause then fetch next
-      }
-      img.src = `${depthApi.getMapUrl()}?t=${Date.now()}`
-    }
-    refresh()
-    return () => { active = false }
-  }, [showDepthMap, depth?.enabled])
 
   // Signal strength bar color
   const signalColor = (pct: number) => {
@@ -292,87 +252,47 @@ export function SensorPanel() {
       {/* Sensor cards */}
       <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-border">
 
-        {/* Depth Card */}
+        {/* SLAM / VO Card */}
         <div className="bg-panel/30 rounded-lg p-2.5">
           <div className="flex items-center justify-between mb-1.5">
             <div className="flex items-center gap-1.5">
-              <div className={`w-1.5 h-1.5 rounded-full ${depth?.enabled ? 'bg-cyan-400' : 'bg-gray-600'}`} />
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-dim">Depth</span>
-              <span className="text-[9px] text-dim">MiDaS</span>
+              <div className={`w-1.5 h-1.5 rounded-full ${
+                !slamData?.enabled ? 'bg-gray-600'
+                  : (slamData.inlier_ratio > 0.3 ? 'bg-emerald-400'
+                    : slamData.inlier_ratio > 0.1 ? 'bg-yellow-400'
+                    : 'bg-red-400')
+              }`} />
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-dim">SLAM</span>
+              <span className="text-[9px] text-dim">
+                {slamData?.slam_type === 'visual_odometry' ? 'VO' : 'OF'}
+              </span>
             </div>
-            <div className="flex gap-1">
-              {depth?.enabled && (
-                <button
-                  onClick={() => setShowDepthMap(v => !v)}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                    showDepthMap ? 'bg-cyan-700 hover:bg-cyan-600' : 'bg-gray-600 hover:bg-gray-500'
-                  }`}
-                >
-                  {showDepthMap ? 'Hide' : 'Map'}
-                </button>
-              )}
-              <button
-                onClick={handleDepthToggle}
-                disabled={depthLoading}
-                className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors disabled:opacity-50 ${
-                  depth?.enabled ? 'bg-orange-700 hover:bg-orange-600' : 'bg-blue-700 hover:bg-blue-600'
-                }`}
-              >
-                {depthLoading ? '...' : depth?.enabled ? 'Stop' : 'Start'}
-              </button>
-            </div>
+            <button
+              onClick={() => slamApi.reset().catch(console.error)}
+              className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-600 hover:bg-gray-500 transition-colors"
+            >
+              Reset
+            </button>
           </div>
-          {depth?.enabled ? (
+          {slamData?.enabled ? (
             <div className="text-[11px] font-mono space-y-1">
               <div className="flex justify-between">
-                <span className="text-dim">{position?.camera_mode === 'bottom' ? 'Altitude' : 'Fwd Depth'}</span>
-                <span className="text-cyan-400">{depth.altitude.toFixed(2)}m</span>
+                <span className="text-dim">Keyframes</span>
+                <span className="text-cyan-400">{slamData.keyframe_count}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-dim">Avg Depth</span>
-                <span className="text-heading">{depth.avg_depth.toFixed(2)}m</span>
+                <span className="text-dim">Map Pts</span>
+                <span className="text-heading">{slamData.map_points_count}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-dim">Matches</span>
+                <span className="text-heading">{slamData.avg_matches.toFixed(0)}</span>
               </div>
               <div className="flex justify-between text-[10px] text-dim">
-                <span>{depth.process_time_ms.toFixed(0)}ms</span>
-                <span>{depth.total_inferences} inf</span>
-                {(depth as any).depth_range && (
-                  <span>{(depth as any).depth_range[0].toFixed(1)}-{(depth as any).depth_range[1].toFixed(1)}m</span>
-                )}
+                <span>Inlier: {(slamData.inlier_ratio * 100).toFixed(0)}%</span>
+                <span>Lost: {slamData.lost_count}</span>
+                <span>{slamData.frame_count} frm</span>
               </div>
-              {showDepthMap && (
-                <div className="flex gap-2 pt-1 border-t border-border/50">
-                  <div className="w-24 h-16 shrink-0 bg-black/30 rounded border border-border overflow-hidden">
-                    <img
-                      src={`${depthApi.getMapUrl()}?t=${depthMapKey}`}
-                      alt="Depth map"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="flex-1 flex flex-col justify-between min-w-0">
-                    <div className="flex items-center gap-1">
-                      <span className="text-dim text-[9px] w-6 shrink-0">Max</span>
-                      <input type="range" min={0.5} max={20} step={0.5} value={maxDepth}
-                        onChange={(e) => { const v = Number(e.target.value); setMaxDepth(v); depthApi.setMaxDepth(v) }}
-                        className="flex-1 h-1 accent-cyan-500" />
-                      <span className="text-dim text-[9px] w-7 text-right">{maxDepth}m</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-dim text-[9px] w-6 shrink-0">Sens</span>
-                      <input type="range" min={0} max={100} value={sensitivity}
-                        onChange={(e) => { const v = Number(e.target.value); setSensitivity(v); depthApi.setSensitivity(v) }}
-                        className="flex-1 h-1 accent-cyan-500" />
-                      <span className="text-dim text-[9px] w-7 text-right">{sensitivity}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-dim text-[9px] w-6 shrink-0">Scale</span>
-                      <input type="range" min={10} max={1000} step={10} value={depthScale}
-                        onChange={(e) => { const v = Number(e.target.value); setDepthScale(v); depthApi.setDepthScale(v) }}
-                        className="flex-1 h-1 accent-cyan-500" />
-                      <span className="text-dim text-[9px] w-7 text-right">{depthScale}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           ) : (
             <div className="text-[11px] text-dim font-mono">Offline</div>
@@ -469,10 +389,6 @@ export function SensorPanel() {
               <span className="text-heading">{optFlow?.last_pixel_velocity
                 ? `[${optFlow.last_pixel_velocity.map(v => v.toFixed(2)).join(', ')}]`
                 : '—'}</span>
-              <span className="text-dim">Depth→Alt</span>
-              <span className={pipeline?.depth_feeds_altitude ? 'text-emerald-400' : 'text-dim'}>
-                {pipeline?.depth_feeds_altitude ? 'Active' : 'Off'}
-              </span>
             </div>
           </div>
 
@@ -513,6 +429,10 @@ export function SensorPanel() {
           <div className="bg-panel/30 rounded-lg p-2">
             <div className="text-dim text-[9px] uppercase tracking-wider font-mono mb-1">Test Actions</div>
             <div className="flex flex-wrap gap-1">
+              <button onClick={() => debugAction('/api/slam/statistics')}
+                className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-600 hover:bg-gray-500 transition-colors">
+                VO Stats
+              </button>
               <button onClick={() => debugAction('/api/debug/transform/camera')}
                 className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-600 hover:bg-gray-500 transition-colors">
                 Camera Intrinsics

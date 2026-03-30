@@ -1,8 +1,13 @@
 """
 Position Service for Drone Position Estimation
 
-Singleton service that integrates optical flow tracking, coordinate transforms,
-and Kalman filtering to estimate drone position from video frames.
+Singleton service that integrates visual odometry (or optical flow fallback),
+coordinate transforms, and EKF filtering to estimate drone position from
+video frames.
+
+Supports two tracking modes via config `slam.type`:
+  - "visual_odometry": ORB features + Essential matrix (6DOF pose)
+  - "optical_flow": Sparse Lucas-Kanade (2D velocity only, legacy)
 
 Typical usage:
     position_service.initialize(config)
@@ -19,6 +24,7 @@ from typing import Optional, Tuple, List, Dict, Any
 import numpy as np
 
 from autonomous.perception.optical_flow_tracker import OpticalFlowTracker
+from autonomous.perception.monocular_vo import MonocularVO
 from autonomous.localization.coordinate_transforms import (
     CoordinateTransformer,
     create_camera_matrix
@@ -71,8 +77,18 @@ class PositionService:
 
         # Components
         self.optical_flow: Optional[OpticalFlowTracker] = None
+        self.visual_odometry: Optional[MonocularVO] = None
         self.transformer: Optional[CoordinateTransformer] = None
         self.estimator: Optional[EKFPositionEstimator] = None
+
+        # Tracking mode: "visual_odometry" or "optical_flow"
+        self.slam_type: str = "visual_odometry"
+
+        # VO scale and altitude prior config
+        self._assumed_altitude: float = 1.0
+        self._altitude_prior_noise: float = 5.0
+        self._last_altitude_prior_time: float = 0.0
+        self._altitude_prior_interval: float = 5.0  # seconds
 
         # State
         self.enabled = False
@@ -139,7 +155,11 @@ class PositionService:
             self.max_trajectory_points = pos_config.get('max_trajectory_points', 1000)
             self.update_rate = pos_config.get('update_rate', 10)
 
-            # Create components
+            # SLAM type selection
+            slam_config = config.get('slam', {})
+            self.slam_type = slam_config.get('type', 'visual_odometry')
+
+            # Create optical flow tracker (used as fallback or primary)
             self.optical_flow = OpticalFlowTracker(
                 max_corners=max_corners,
                 quality_level=quality_level,
@@ -153,6 +173,30 @@ class PositionService:
             self.transformer = CoordinateTransformer(camera_matrix)
             self.transformer.set_altitude(self.altitude)
 
+            # Create visual odometry if configured
+            if self.slam_type == "visual_odometry":
+                vo_config = slam_config.get('visual_odometry', {})
+                self._assumed_altitude = vo_config.get('assumed_altitude', 1.0)
+                self._altitude_prior_noise = vo_config.get('altitude_prior_noise', 5.0)
+
+                dist_coeffs = np.array([
+                    camera_config.get('k1', 0.0),
+                    camera_config.get('k2', 0.0),
+                    camera_config.get('p1', 0.0),
+                    camera_config.get('p2', 0.0),
+                    camera_config.get('k3', 0.0),
+                ], dtype=np.float64)
+
+                self.visual_odometry = MonocularVO(
+                    camera_matrix=camera_matrix,
+                    dist_coeffs=dist_coeffs,
+                    n_features=vo_config.get('n_features', 500),
+                    match_ratio=vo_config.get('match_ratio', 0.75),
+                    min_matches=vo_config.get('min_matches', 15),
+                    keyframe_threshold=vo_config.get('keyframe_threshold', 20.0),
+                    use_pnp=vo_config.get('use_pnp', True),
+                )
+
             self.estimator = EKFPositionEstimator(
                 process_noise_xy=process_noise,
                 measurement_noise_velocity=measurement_noise,
@@ -160,7 +204,7 @@ class PositionService:
             )
 
             logger.info(
-                f"PositionService initialized: "
+                f"PositionService initialized: slam_type={self.slam_type}, "
                 f"camera=({fx:.1f}, {fy:.1f}, {cx:.1f}, {cy:.1f}), "
                 f"altitude={self.altitude:.2f}m, update_rate={self.update_rate}Hz"
             )
@@ -209,6 +253,8 @@ class PositionService:
         with self.state_lock:
             if self.optical_flow:
                 self.optical_flow.reset()
+            if self.visual_odometry:
+                self.visual_odometry.reset()
             if self.estimator:
                 self.estimator.reset(initial_position)
 
@@ -254,6 +300,8 @@ class PositionService:
             self.trajectory.clear()
             if self.optical_flow:
                 self.optical_flow.reset()
+            if self.visual_odometry:
+                self.visual_odometry.reset()
             if self.transformer:
                 self.transformer.set_altitude(0.0)
 
@@ -335,23 +383,6 @@ class PositionService:
 
             logger.info(f"Altitude updated to {self.altitude:.2f}m")
 
-    def update_altitude_from_depth(self, altitude: float) -> None:
-        """
-        Update altitude from depth estimation service.
-
-        Feeds the EKF with a direct Z measurement and also updates
-        the coordinate transformer's altitude for proper velocity scaling.
-
-        Args:
-            altitude: Estimated altitude in meters (from depth service)
-        """
-        with self.state_lock:
-            if self.estimator:
-                self.estimator.update_altitude(altitude)
-                self.altitude = self.estimator.get_altitude()
-                if self.transformer:
-                    self.transformer.set_altitude(self.altitude)
-
     def update_rssi_distance(self, distance: float) -> None:
         """
         Update with WiFi RSSI distance measurement.
@@ -369,7 +400,9 @@ class PositionService:
 
     def process_frame(self, frame: np.ndarray) -> bool:
         """
-        Process video frame for position estimation
+        Process video frame for position estimation.
+
+        Dispatches to visual odometry or optical flow based on slam_type.
 
         Args:
             frame: Video frame (BGR or grayscale)
@@ -380,75 +413,133 @@ class PositionService:
         if not self.enabled:
             return False
 
-        if not self.optical_flow or not self.transformer or not self.estimator:
+        if not self.estimator:
             logger.warning("Cannot process frame - service not initialized")
             return False
 
         try:
             self.frame_count += 1
 
-            # Calculate optical flow
-            success, pixel_velocity, features = self.optical_flow.update(frame)
-
-            if not success or pixel_velocity is None:
-                # No valid flow - just predict without update
-                dt = time.time() - self.last_update_time if self.last_update_time else 0.1
-                with self.state_lock:
-                    self.estimator.predict(dt)
-                    self.position = self.estimator.get_position()
-                    self.velocity = self.estimator.get_velocity()
-                    self.altitude = self.estimator.get_altitude()
-                    self.last_update_time = time.time()
-                return False
-
-            # Convert pixel velocity to world velocity
-            world_velocity = self.transformer.pixel_velocity_to_world(
-                pixel_velocity,
-                altitude=self.altitude,
-                fps=self.fps
-            )
-
-            # Update EKF with velocity measurement
-            dt = time.time() - self.last_update_time if self.last_update_time else 0.1
-
-            with self.state_lock:
-                # Predict and update
-                state = self.estimator.predict_and_update_velocity(world_velocity, dt)
-
-                # Update state
-                self.position = self.estimator.get_position()
-                self.velocity = self.estimator.get_velocity()
-                self.altitude = self.estimator.get_altitude()
-                self.last_update_time = time.time()
-                self.last_velocity_measurement = world_velocity
-
-                # Add to trajectory
-                self._add_trajectory_point(
-                    self.position[0],
-                    self.position[1],
-                    self.last_update_time
-                )
-
-            logger.debug(
-                f"Position updated: pos=({self.position[0]:.3f}, {self.position[1]:.3f}), "
-                f"vel=({self.velocity[0]:.3f}, {self.velocity[1]:.3f}), "
-                f"features={self.optical_flow.get_feature_count()}"
-            )
-
-            # Fire update callbacks (autopilot PID, etc.)
-            with self._callbacks_lock:
-                cbs = list(self._on_update_callbacks)
-            for cb in cbs:
-                try:
-                    cb()
-                except Exception as e:
-                    logger.debug("Position update callback error: %s", e)
-
-            return True
+            if self.slam_type == "visual_odometry" and self.visual_odometry:
+                return self._process_frame_vo(frame)
+            else:
+                return self._process_frame_optical_flow(frame)
 
         except Exception as e:
             logger.error(f"Error processing frame for position: {e}", exc_info=True)
             return False
+
+    def _process_frame_vo(self, frame: np.ndarray) -> bool:
+        """Process frame using visual odometry pipeline."""
+        result = self.visual_odometry.process_frame(frame)
+
+        dt = time.time() - self.last_update_time if self.last_update_time else 0.1
+        dt = max(0.001, min(dt, 1.0))
+
+        if not result.success or result.t is None:
+            # VO lost — predict only
+            with self.state_lock:
+                self.estimator.predict(dt)
+                self.position = self.estimator.get_position()
+                self.velocity = self.estimator.get_velocity()
+                self.altitude = self.estimator.get_altitude()
+                self.last_update_time = time.time()
+            return False
+
+        # Extract velocity from VO translation vector.
+        # t is unit-scale — multiply by best available metric scale.
+        # Use current EKF altitude as scale proxy (bottom cam),
+        # or assumed altitude (front cam / no altitude info).
+        scale = self.altitude if self.altitude > 0.1 else self._assumed_altitude
+        t_vec = result.t.flatten()
+        vx = t_vec[0] * scale / dt
+        vy = t_vec[1] * scale / dt
+        vz = t_vec[2] * scale / dt
+
+        with self.state_lock:
+            self.estimator.predict(dt)
+            self.estimator.update_velocity_3d(vx, vy, vz)
+
+            # Periodic weak altitude prior to prevent Z drift
+            now = time.time()
+            if now - self._last_altitude_prior_time > self._altitude_prior_interval:
+                self.estimator.update_altitude_prior(
+                    self._assumed_altitude, self._altitude_prior_noise
+                )
+                self._last_altitude_prior_time = now
+
+            self.position = self.estimator.get_position()
+            self.velocity = self.estimator.get_velocity()
+            self.altitude = self.estimator.get_altitude()
+            self.last_update_time = now
+            self.last_velocity_measurement = np.array([vx, vy])
+
+            self._add_trajectory_point(
+                self.position[0], self.position[1], self.last_update_time
+            )
+
+        logger.debug(
+            "VO position: pos=(%.3f, %.3f, %.3f), matches=%d, inliers=%d",
+            self.position[0], self.position[1], self.altitude,
+            result.num_matches, result.num_inliers,
+        )
+
+        self._fire_callbacks()
+        return True
+
+    def _process_frame_optical_flow(self, frame: np.ndarray) -> bool:
+        """Process frame using optical flow (legacy fallback)."""
+        if not self.optical_flow or not self.transformer:
+            return False
+
+        success, pixel_velocity, features = self.optical_flow.update(frame)
+
+        dt = time.time() - self.last_update_time if self.last_update_time else 0.1
+
+        if not success or pixel_velocity is None:
+            with self.state_lock:
+                self.estimator.predict(dt)
+                self.position = self.estimator.get_position()
+                self.velocity = self.estimator.get_velocity()
+                self.altitude = self.estimator.get_altitude()
+                self.last_update_time = time.time()
+            return False
+
+        world_velocity = self.transformer.pixel_velocity_to_world(
+            pixel_velocity, altitude=self.altitude, fps=self.fps
+        )
+
+        with self.state_lock:
+            self.estimator.predict_and_update_velocity(world_velocity, dt)
+            self.position = self.estimator.get_position()
+            self.velocity = self.estimator.get_velocity()
+            self.altitude = self.estimator.get_altitude()
+            self.last_update_time = time.time()
+            self.last_velocity_measurement = world_velocity
+
+            self._add_trajectory_point(
+                self.position[0], self.position[1], self.last_update_time
+            )
+
+        logger.debug(
+            "OF position: pos=(%.3f, %.3f), vel=(%.3f, %.3f), features=%d",
+            self.position[0], self.position[1],
+            self.velocity[0], self.velocity[1],
+            self.optical_flow.get_feature_count(),
+        )
+
+        self._fire_callbacks()
+        return True
+
+    def _fire_callbacks(self) -> None:
+        """Fire update callbacks (autopilot PID, etc.)."""
+        with self._callbacks_lock:
+            cbs = list(self._on_update_callbacks)
+        for cb in cbs:
+            try:
+                cb()
+            except Exception as e:
+                logger.debug("Position update callback error: %s", e)
 
     def _add_trajectory_point(self, x: float, y: float, timestamp: float) -> None:
         """
@@ -488,7 +579,7 @@ class PositionService:
             pos_3d = self.estimator.get_position_3d() if self.estimator else (self.position[0], self.position[1], self.altitude)
             vel_3d = self.estimator.get_velocity_3d() if self.estimator else (self.velocity[0], self.velocity[1], 0.0)
 
-            return {
+            result = {
                 'position': {
                     'x': pos_3d[0],
                     'y': pos_3d[1],
@@ -502,9 +593,23 @@ class PositionService:
                 'altitude': self.altitude,
                 'enabled': self.enabled,
                 'feature_count': feature_count,
+                'slam_type': self.slam_type,
                 'camera_mode': 'bottom' if self.using_bottom_camera else 'front',
                 'timestamp': self.last_update_time or time.time()
             }
+
+            # Add VO-specific metrics
+            if self.visual_odometry and self.slam_type == "visual_odometry":
+                vo_stats = self.visual_odometry.get_statistics()
+                result['vo'] = {
+                    'keyframe_count': vo_stats['keyframe_count'],
+                    'map_points_count': vo_stats['map_points_count'],
+                    'avg_matches': vo_stats['avg_matches'],
+                    'inlier_ratio': vo_stats['inlier_ratio'],
+                    'lost_count': vo_stats['lost_count'],
+                }
+
+            return result
 
     def get_trajectory(self, max_points: Optional[int] = None) -> List[Dict[str, Any]]:
         """
@@ -560,6 +665,7 @@ class PositionService:
 
             stats = {
                 'enabled': self.enabled,
+                'slam_type': self.slam_type,
                 'position': {
                     'x': pos_3d[0],
                     'y': pos_3d[1],
@@ -579,6 +685,10 @@ class PositionService:
             # Add optical flow stats
             if self.optical_flow:
                 stats['feature_count'] = self.optical_flow.get_feature_count()
+
+            # Add VO stats
+            if self.visual_odometry and self.slam_type == "visual_odometry":
+                stats['vo'] = self.visual_odometry.get_statistics()
 
             # Add estimator uncertainty
             if self.estimator:
